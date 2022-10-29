@@ -2,8 +2,8 @@
 
 #### Deliverable:
 * [1.1 Fat contract design](https://github.com/OrdumLTD/Technology-Research/issues/2)
-* [1.2 Data storage infrastructure]()
-* [1.3 Evaluate the limitations]()
+* [1.2 Data storage infrastructure](https://github.com/OrdumLTD/Technology-Research/issues/3)
+* [1.3 Evaluate the limitations](https://github.com/OrdumLTD/Technology-Research/issues/4)
 
 ---
 ### **1.1 Fat contract design**
