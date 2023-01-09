@@ -9,6 +9,8 @@ use ink_storage::traits::{PackedLayout, SpreadLayout, StorageLayout};
 use scale::{Decode, Encode};
 use ink_prelude::{vec::Vec,vec,string::String};
 use ink_storage::Mapping;
+use core::hash::Hash;
+use ink_storage::traits::SpreadAllocate;
 use ink_types::Timestamp;
 
 
@@ -57,7 +59,6 @@ impl ApplicantProfile {
 #[derive(SpreadAllocate)]
 pub struct IssuerProfile {
     name: String,
-    grant_levels: Option<Mapping<u8,u32>>,
     chain: Option<String>,
     is_active: bool,
     registration_date: Timestamp,
@@ -70,7 +71,6 @@ pub struct IssuerProfile {
 impl IssuerProfile {
     pub fn new(
         name: String,
-        grant_levels: Option<Mapping<u8,u32>>,
         chain: Option<String>,
         categories: Option<Vec<String>>,
         time: Timestamp,
@@ -80,7 +80,6 @@ impl IssuerProfile {
 
         Ok(Self{
             name,
-            grant_levels,
             chain,
             is_active: true,
             registration_date: time,
@@ -93,10 +92,7 @@ impl IssuerProfile {
         self.description = description;
         Ok(())
     }
-    pub fn update_grant_levels(&mut self, grant_levels:Option<Mapping<u8,u32>>) -> CreateResult<()> {
-        self.grant_levels = grant_levels;
-        Ok(())
-    }
+
     pub fn update_grant_status(&mut self, status: bool) -> CreateResult<()>{
         self.is_active = status;
         Ok(())
@@ -107,7 +103,7 @@ impl IssuerProfile {
 /// Key management struct
 /// This will allow multiple members in certain organization to issue transactions
 /// The allowed members will be granted by key `admin`
-#[derive(Clone,Encode, Decode, Debug)]
+#[derive(Clone,Encode,Hash, Decode, Debug)]
 #[cfg_attr(feature = "std",
 derive(StorageLayout,scale_info::TypeInfo))]
 pub struct KeyManagement{
@@ -167,7 +163,6 @@ impl SpreadLayout for IssuerProfile {
     fn pull_spread(ptr: &mut KeyPtr) -> Self {
         Self {
             name: SpreadLayout::pull_spread(ptr),
-            grant_levels: SpreadLayout::pull_spread(ptr),
             chain: SpreadLayout::pull_spread(ptr),
             is_active: SpreadLayout::pull_spread(ptr),
             registration_date: SpreadLayout::pull_spread(ptr),
@@ -179,7 +174,6 @@ impl SpreadLayout for IssuerProfile {
 
     fn push_spread(&self, ptr: &mut KeyPtr) {
         SpreadLayout::push_spread(&self.name, ptr);
-        SpreadLayout::push_spread(&self.grant_levels, ptr);
         SpreadLayout::push_spread(&self.chain, ptr);
         SpreadLayout::push_spread(&self.is_active, ptr);
         SpreadLayout::push_spread(&self.registration_date, ptr);
@@ -191,7 +185,6 @@ impl SpreadLayout for IssuerProfile {
 
     fn clear_spread(&self, ptr: &mut KeyPtr) {
         SpreadLayout::clear_spread(&self.name, ptr);
-        SpreadLayout::clear_spread(&self.grant_levels, ptr);
         SpreadLayout::clear_spread(&self.chain, ptr);
         SpreadLayout::clear_spread(&self.is_active, ptr);
         SpreadLayout::clear_spread(&self.registration_date, ptr);
@@ -256,7 +249,6 @@ impl PackedLayout for ApplicantProfile {
 impl PackedLayout for IssuerProfile {
     fn pull_packed(&mut self, at: &Key) {
         PackedLayout::pull_packed(&mut self.name, at);
-        PackedLayout::pull_packed(&mut self.grant_levels, at);
         PackedLayout::pull_packed(&mut self.chain, at);
         PackedLayout::pull_packed(&mut self.is_active, at);
         PackedLayout::pull_packed(&mut self.registration_date, at);
@@ -268,7 +260,6 @@ impl PackedLayout for IssuerProfile {
 
     fn push_packed(&self, at: &Key) {
         PackedLayout::push_packed(&self.name, at);
-        PackedLayout::push_packed(&self.grant_levels, at);
         PackedLayout::push_packed(&self.chain, at);
         PackedLayout::push_packed(&self.is_active, at);
         PackedLayout::push_packed(&self.registration_date, at);
@@ -281,7 +272,6 @@ impl PackedLayout for IssuerProfile {
     fn clear_packed(&self, at: &Key) {
         PackedLayout::clear_packed(&self.name, at);
         PackedLayout::clear_packed(&self.description, at);
-        PackedLayout::clear_packed(&self.grant_levels, at);
         PackedLayout::clear_packed(&self.chain, at);
         PackedLayout::clear_packed(&self.registration_date, at);
         PackedLayout::clear_packed(&self.categories, at);
@@ -341,7 +331,6 @@ pub trait CreateProfile {
     #[ink(message, selector =0xC0DE0002)]
     fn create_issuer_profile(
         &mut self, name: String,
-        grant_levels: Option<Mapping<u8,u32>>,
         chain: Option<String>,
         categories: Option<Vec<String>>,
         description: String,
@@ -363,10 +352,8 @@ mod ordum{
     use ink_lang::utils::initialize_contract;
     use ink_storage::Mapping;
     use ink_storage::traits::SpreadAllocate;
-    use ink_types::Timestamp;
-    use pink_extension::AccountId;
     use crate::{CreateResult, KeyManagement};
-    use super::{CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
+    use super::{Vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
     /// Ordum Global State
@@ -459,7 +446,6 @@ mod ordum{
         #[ink(message, selector =0xC0DE0002)]
         fn create_issuer_profile(
             &mut self, name: String,
-            grant_levels: Option<Mapping<u8,u32>>,
             chain: Option<String>,
             categories: Option<Vec<String>>,
             description: String,
@@ -472,16 +458,16 @@ mod ordum{
             if !self.issuer_profile.contains(issuer.clone()){
                 let time = Self::env().block_timestamp();
                 let issuer_data = IssuerProfile
-                    ::new(name,grant_levels,chain,categories,time,description)
+                    ::new(name,chain,categories,time,description)
                     .map_err(|_|Error::UnexpectedError)?;
 
                 self.issuer_profile.insert(&issuer,&Some(issuer_data));
 
                 // Emiting an event
-                Self::env().emit_event(Events::IssuerAccountCreated {
+                /*Self::env().emit_event(Events::IssuerAccountCreated {
                     account: issuer,
                     time,
-                });
+                });*/
                 Ok(())
 
             }else {
