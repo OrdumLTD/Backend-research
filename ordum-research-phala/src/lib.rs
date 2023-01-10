@@ -5,7 +5,7 @@
 use ink_env::AccountId;
 use ink_lang as ink;
 use ink_primitives::{Key, KeyPtr};
-use ink_storage::traits::{PackedLayout, SpreadLayout, StorageLayout};
+use ink_storage::traits::{PackedAllocate, PackedLayout, SpreadLayout, StorageLayout};
 use scale::{Decode, Encode};
 use ink_prelude::{vec::Vec,vec,string::String};
 use ink_storage::Mapping;
@@ -19,15 +19,16 @@ use ink_types::Timestamp;
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum Error {
     AccountExists,
+
     AccountDontExists,
+    /// Any system related error
     UnexpectedError,
 }
 
 
 ///  A grant applicant profile
-#[derive(Clone,Encode, Decode, Debug)]
-#[cfg_attr(feature = "std",
-derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(Clone,Encode,Default, Decode, Debug)]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 pub struct ApplicantProfile {
     name: String,
     team_size: u8,
@@ -53,10 +54,8 @@ impl ApplicantProfile {
 
 /// A grant issuer profile
 /// The order is important in Contract Upgrades
-#[derive(Encode, Decode, Debug)]
-#[cfg_attr(feature = "std",
- derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadAllocate)]
+#[derive(Encode,Clone,Default, Decode, Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
 pub struct IssuerProfile {
     name: String,
     chain: Option<String>,
@@ -65,8 +64,8 @@ pub struct IssuerProfile {
     categories: Option<Vec<String>>,
     description: String,
     applications: Option<Vec<u16>>,
-
 }
+
 
 impl IssuerProfile {
     pub fn new(
@@ -101,13 +100,15 @@ impl IssuerProfile {
 }
 
 /// Key management struct
-/// This will allow multiple members in certain organization to issue transactions
-/// The allowed members will be granted by key `admin`
+/// This will allow multiple members in certain organization to manage the account
+/// The allowed members will be granted by `admin` key
+/// The `key_pointer` is the key used in the key to `IssuerProfile` mapping
 #[derive(Clone,Encode,Hash, Decode, Debug)]
-#[cfg_attr(feature = "std",
-derive(StorageLayout,scale_info::TypeInfo))]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(SpreadAllocate)]
 pub struct KeyManagement{
     admin: AccountId,
+    key_pointer: AccountId, // Account Id for now
     allowed_keys: Vec<AccountId>
 }
 
@@ -123,6 +124,7 @@ impl KeyManagement {
     pub fn new(admin: AccountId) ->CreateResult<()>{
         Self{
             admin,
+            key_pointer: admin,
             allowed_keys: vec![admin],
         };
         Ok(())
@@ -137,23 +139,28 @@ impl KeyManagement {
 
 // Required traits to work on custom data structures
 impl SpreadLayout for KeyManagement {
-    const FOOTPRINT: u64 = 2;
+    const FOOTPRINT: u64 = 3;
 
     fn pull_spread(ptr: &mut KeyPtr) -> Self {
         Self {
             admin: SpreadLayout::pull_spread(ptr),
+            key_pointer: SpreadLayout::pull_spread(ptr),
             allowed_keys: SpreadLayout::pull_spread(ptr),
         }
     }
 
     fn push_spread(&self, ptr: &mut KeyPtr) {
         SpreadLayout::push_spread(&self.admin,ptr);
+        SpreadLayout::push_spread(&self.key_pointer,ptr);
         SpreadLayout::push_spread(&self.allowed_keys,ptr);
+
     }
 
     fn clear_spread(&self, ptr: &mut KeyPtr) {
         SpreadLayout::clear_spread(&self.admin, ptr);
+        SpreadLayout::clear_spread(&self.key_pointer,ptr);
         SpreadLayout::clear_spread(&self.allowed_keys,ptr);
+
     }
 }
 
@@ -284,17 +291,30 @@ impl PackedLayout for IssuerProfile {
 impl PackedLayout for KeyManagement {
     fn pull_packed(&mut self, at: &Key) {
         PackedLayout::pull_packed(&mut self.admin, at);
+        PackedLayout::pull_packed(&mut self.key_pointer, at);
         PackedLayout::pull_packed(&mut self.allowed_keys, at);
+
     }
 
     fn push_packed(&self, at: &Key) {
         PackedLayout::push_packed(&self.admin, at);
+        PackedLayout::push_packed(&self.key_pointer,at);
         PackedLayout::push_packed(&self.allowed_keys,at);
+
     }
 
     fn clear_packed(&self, at: &Key) {
         PackedLayout::clear_packed(&self.admin,at);
+        PackedLayout::clear_packed(&self.key_pointer, at);
         PackedLayout::clear_packed(&self.allowed_keys, at);
+
+    }
+}
+impl PackedAllocate for KeyManagement {
+    fn allocate_packed(&mut self, at: &Key) {
+        PackedAllocate::allocate_packed(&mut self.admin,at);
+        PackedAllocate::allocate_packed(&mut self.key_pointer, at);
+        PackedAllocate::allocate_packed(&mut self.allowed_keys, at);
     }
 }
 //---------------------------------------------------------------------//
@@ -314,9 +334,11 @@ pub trait CreateProfile {
     /// as it takes in `&mut self`.
     #[ink(message,selector =0xC0DE0001)]
     fn create_appl_profile(
+
         &mut self, name: String,
         account: AccountId,
         team_size: u8, description: String
+
     ) -> CreateResult<()>;
 
 
@@ -326,14 +348,18 @@ pub trait CreateProfile {
     /// of grants to provide based on amount, `chain type if the grants is an on-chain type and
     /// None if its Off-chain`, `categories`: This specifies which categories this grant is on.
     /// `description`: extra details of the grants.
+    ///
+    /// Allowed Accounts act as privileged members that can control the account `Multi-Key system`
     /// In Phala context this function will be dispatched following block production
     /// as it takes in `&mut self`.
     #[ink(message, selector =0xC0DE0002)]
     fn create_issuer_profile(
+
         &mut self, name: String,
         chain: Option<String>,
         categories: Option<Vec<String>>,
         description: String,
+        allowed_accounts: Vec<AccountId>
 
     ) -> CreateResult<()>;
 
@@ -348,41 +374,54 @@ pub trait CreateProfile {
 
 #[ink::contract]
 mod ordum{
-
     use ink_lang::utils::initialize_contract;
     use ink_storage::Mapping;
     use ink_storage::traits::SpreadAllocate;
     use crate::{CreateResult, KeyManagement};
-    use super::{Vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
+    use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
     /// Ordum Global State
     #[ink(storage)]
     #[derive(SpreadAllocate)]
     pub struct OrdumState {
-        issuer_profile: Mapping<AccountId,Option<IssuerProfile>>,
-        applicant_profile: Mapping<AccountId,Option<ApplicantProfile>>,
-        // Key management
-        //allowed_keys: KeyManagement,
-
+        //Experinmental Multi-Key management
+        issuer_profile: Mapping<AccountId,IssuerProfile>,
+        applicant_profile: Mapping<AccountId,ApplicantProfile>,
+        // Multi-Key Management
+        manage_keys: Vec<KeyManagement>,
     }
 
 
     /// Events to be used on Notifications
-    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum Events{
-        IssuerAccountCreated {
-            account: AccountId,
+    /// Event emitted when new Grant Issuer is registered
+        #[ink(event)]
+        pub struct IssuerAccountCreated {
+            #[ink(topic)]
+            name: String,
             time: Timestamp
-        },
-        ApplicantAccountCreated {
-            account: AccountId,
+        }
+    /// Event emitted when new Applicant is registered
+        #[ink(event)]
+        pub struct ApplicantAccountCreated {
+            #[ink(topic)]
+            name: String,
             time:  Timestamp
-        },
-        ApplicantUpdated
-
+        }
+    /// Event emitted when Grant Issuer updates the profile
+    #[ink(event)]
+    pub struct IssuerUpdated {
+        #[ink(topic)]
+        name: String,
+        time: Timestamp
     }
+    /// Event emitted when Applicant updates the profile
+        #[ink(event)]
+        pub struct ApplicantUpdated {
+            #[ink(topic)]
+            name: String,
+            time: Timestamp
+        }
 
     impl OrdumState {
 
@@ -391,8 +430,15 @@ mod ordum{
             initialize_contract(|state:&mut Self|{
                 let contract_id = Self::env().account_id();
                 let initializer_id = Self::env().caller();
-                state.issuer_profile.insert(contract_id,&None::<IssuerProfile>);
-                state.applicant_profile.insert(initializer_id,&None::<ApplicantProfile>);
+                let initial_keys = KeyManagement {
+                    admin: contract_id,
+                    key_pointer: contract_id,
+                    allowed_keys: vec![contract_id,initializer_id],
+                };
+
+                state.issuer_profile.insert(contract_id,&IssuerProfile::default());
+                state.manage_keys = vec![initial_keys];
+                state.applicant_profile.insert(initializer_id,&ApplicantProfile::default());
             })
         }
         // Default constructor
@@ -402,19 +448,19 @@ mod ordum{
         }
 
         // Getters
-        #[ink(message,selector=0xC0DE1002)]
+        /*#[ink(message,selector=0xC0DE1002)]
         pub fn get_issuer_profile(&self, account: AccountId) -> CreateResult<IssuerProfile>{
             if self.issuer_profile.contains(account){
                 Ok(self.issuer_profile.get(account).unwrap().unwrap())
             }else{
                 Err(Error::AccountDontExists)
             }
-        }
+        }*/
 
         #[ink(message,selector=0xC0DE1001)]
         pub fn get_app_profile(&self, account: AccountId) -> CreateResult<ApplicantProfile>{
             if self.applicant_profile.contains(account){
-                Ok(self.applicant_profile.get(account).unwrap().unwrap())
+                Ok(self.applicant_profile.get(account).unwrap())
             }else{
                 Err(Error::AccountDontExists)
             }
@@ -435,7 +481,7 @@ mod ordum{
                 let applicant = Self::env().caller();
                 let appl_data = ApplicantProfile::new(name,team_size,description,account)
                     .map_err(|_|Error::UnexpectedError)?;
-                self.applicant_profile.insert(&applicant,&Some(appl_data));
+                self.applicant_profile.insert(&applicant,&appl_data);
 
                 Ok(())
             }else {
@@ -449,43 +495,44 @@ mod ordum{
             chain: Option<String>,
             categories: Option<Vec<String>>,
             description: String,
-
+            allowed_accounts: Vec<AccountId>
         ) -> CreateResult<()> {
 
-            let issuer = Self::env().caller();
+            let issuer_admin = Self::env().caller();
 
             // Checking if the account is already registered
-            if !self.issuer_profile.contains(issuer.clone()){
+
+            if let Some(_key) =  self.manage_keys.iter()
+                .find(|&k| k.admin == issuer_admin){
+                return Err(Error::AccountExists)?;
+
+                // If not then create a new one
+            }else {
                 let time = Self::env().block_timestamp();
-                let issuer_data = IssuerProfile
-                    ::new(name,chain,categories,time,description)
+                let profile = IssuerProfile::new(name,chain,categories,time,description)
                     .map_err(|_|Error::UnexpectedError)?;
 
-                self.issuer_profile.insert(&issuer,&Some(issuer_data));
+                let wallet = KeyManagement {
+                    admin: issuer_admin,
+                    key_pointer: issuer_admin,
+                    allowed_keys: allowed_accounts
+                };
 
-                // Emiting an event
-                /*Self::env().emit_event(Events::IssuerAccountCreated {
-                    account: issuer,
+
+                // Registering to the storage
+                self.issuer_profile.insert(wallet.key_pointer,&profile);
+                self.manage_keys.push(wallet);
+
+                // Emit an event
+                /*ink_env::emit_event(IssuerAccountCreated {
+                    name: profile.clone().name,
                     time,
                 });*/
                 Ok(())
-
-            }else {
-                return Err(Error::AccountExists)
             }
 
         }
 
-        /*fn signup_applicant() -> CreateResult<()> {
-            todo!()
-        }
 
-        fn signup_issuer() -> CreateResult<()> {
-            todo!()
-        }
-
-        fn update_profile() -> CreateResult<()> {
-            todo!()
-        }*/
     }
 }
