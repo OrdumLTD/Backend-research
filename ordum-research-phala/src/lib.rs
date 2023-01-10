@@ -14,6 +14,9 @@ use ink_storage::traits::SpreadAllocate;
 use ink_types::Timestamp;
 
 
+/// Constants
+const MAX_KEYS:u8 = 3;
+
 /// Error type for Create Profile
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -113,11 +116,11 @@ pub struct KeyManagement{
 }
 
 #[derive(Clone,Encode, Decode, Debug)]
-#[cfg_attr(feature = "std",
-derive(StorageLayout,scale_info::TypeInfo))]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 pub enum KeyAction{
     ADD,
-    REMOVE
+    REMOVE,
+    ChangeAdmin
 }
 
 impl KeyManagement {
@@ -129,11 +132,27 @@ impl KeyManagement {
         };
         Ok(())
     }
-    pub fn update_keys(&mut self,key: AccountId, action:KeyAction) -> CreateResult<()> {
-        match action {
-            KeyAction::ADD => {self.allowed_keys.push(key); Ok(()) },
-            KeyAction::REMOVE => {self.allowed_keys.push(key); Ok(())}
-        }
+    pub fn update_keys_inner(&mut self, key: AccountId, action:KeyAction) {
+       match action {
+            KeyAction::ADD => {
+                if !self.allowed_keys.contains(&key) {
+                    self.allowed_keys.push(key);
+                }else{
+                    () // For the time being it does nothing, proper error handling will be introduced
+                }
+            },
+            KeyAction::REMOVE => {
+               if let Some(index) = self.allowed_keys.iter().position(|k| *k == key){
+                   self.allowed_keys.remove(index);
+               }else{
+                   () // Does nothing, The era of Nothingness
+               }
+            },
+           KeyAction::ChangeAdmin => {
+                self.admin = key;
+           }
+        };
+
     }
 }
 
@@ -363,6 +382,11 @@ pub trait CreateProfile {
 
     ) -> CreateResult<()>;
 
+    /// Adding and removing allowed accounts by the `admin`
+    /// This will allow not only one person who is privileged to manage an account but also
+    /// multiple allowed accounts
+    #[ink(message, selector = 0xC0DE0003)]
+    fn update_keys(&mut self,account: AccountId,action: KeyAction);
     /*
     #[ink(message)]
     fn update_profile() -> CreateResult<()>;*/
@@ -377,7 +401,7 @@ mod ordum{
     use ink_lang::utils::initialize_contract;
     use ink_storage::Mapping;
     use ink_storage::traits::SpreadAllocate;
-    use crate::{CreateResult, KeyManagement};
+    use crate::{CreateResult, KeyAction, KeyManagement};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
@@ -532,7 +556,25 @@ mod ordum{
             }
 
         }
-
+        #[ink(message, selector = 0xC0DE0003)]
+        fn update_keys(&mut self, account: AccountId, action: KeyAction) {
+            let caller = Self::env().caller();
+            // check if the account is registered as admin
+            // Iterating over KeyManagement object and checking admin value
+            let result = self.manage_keys.clone().into_iter().find_map(|wallet| {
+                if wallet.admin == caller {
+                    Some(wallet)
+                } else {
+                    None
+                }
+            });
+            match result {
+                Some(mut acc_manage) => {
+                   acc_manage.update_keys_inner(account,action);
+                },
+                None => ()
+            }
+        }
 
     }
 }
