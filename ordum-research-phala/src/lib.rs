@@ -22,8 +22,9 @@ const MAX_KEYS:u8 = 3;
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum Error {
     AccountExists,
-
+    NotAuthorized,
     AccountDontExists,
+    ProfileDontExists,
     /// Any system related error
     UnexpectedError,
 }
@@ -344,6 +345,7 @@ pub type CreateResult<T> = Result<T,Error>;
 
 /// Trait definition for Creating a Profile
 /// This trait can be used both at individual, institutional applicants or grants issuer
+/// The function selector are in order `(eg, C0DE0001,C0DE0002,.. ) for all transactional functions
 #[ink::trait_definition]
 pub trait CreateProfile {
 
@@ -359,7 +361,6 @@ pub trait CreateProfile {
         team_size: u8, description: String
 
     ) -> CreateResult<()>;
-
 
 
     /// Creates Grant Issuer Profile, a function which takes on `name: String`,
@@ -382,14 +383,33 @@ pub trait CreateProfile {
 
     ) -> CreateResult<()>;
 
+
     /// Adding and removing allowed accounts by the `admin`
     /// This will allow not only one person who is privileged to manage an account but also
-    /// multiple allowed accounts
+    /// multiple allowed accounts.
+    /// Worst case scenario, time complexity will be `O(n)` with a best case of `O(1)`
+    /// In Phala context this function will be dispatched following block production
+    /// as it takes in `&mut self`.
     #[ink(message, selector = 0xC0DE0003)]
     fn update_keys(&mut self,account: AccountId,action: KeyAction);
-    /*
-    #[ink(message)]
-    fn update_profile() -> CreateResult<()>;*/
+
+
+    /// Updating Grant Issuer with limitation of only `description`, `categories`,
+    /// `chain`, `status` which can be updated to the profile.
+    /// Any account member in `allowed accounts` have the privileges for updating.
+    /// Worst case scenario, time complexity will be `O(n)` with a best case of `O(1)`
+    /// In Phala context this function will be dispatched following block production
+    /// as it takes in `&mut self`.
+    #[ink(message,payable,selector = 0xC0DE0004)]
+    fn update_issuer_profile(
+
+        &mut self,description:Option<String>,
+        categories: Option<Vec<String>>, // This replaces the existing categories
+        chain: Option<Option<String>>,
+        status: Option<bool>
+
+    ) -> CreateResult<()>;
+
 }
 
 
@@ -576,5 +596,52 @@ mod ordum{
             }
         }
 
+        #[ink(message, payable, selector = 0xC0DE0004)]
+        fn update_issuer_profile(
+            &mut self, description: Option<String>,
+            categories: Option<Vec<String>>,
+            chain: Option<Option<String>>,
+            status: Option<bool>
+        ) -> CreateResult<()> {
+            // Authorization logic
+            let caller = Self::env().caller();
+            // Checking if caller is in allowed_keys and then returning the key_pointer
+            let key = self.manage_keys.clone().into_iter().find_map(|wallet| {
+                if wallet.allowed_keys.contains(&caller) {
+                    Some(wallet.key_pointer)
+                } else {
+                    None
+                }
+            });
+
+            // Return error if the key is not available
+            let key = key.ok_or(Error::NotAuthorized)?;
+
+           // If the key is present
+            for index in 1..=4{
+                if index == 1 && description.is_some(){
+                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
+                    profile.description = description.clone().ok_or(Error::UnexpectedError)?;
+                    self.issuer_profile.insert(key,&profile);
+
+                }else if index == 2 && categories.is_some() {
+                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
+                    profile.categories = categories.clone();
+                    self.issuer_profile.insert(key,&profile);
+
+                }else if index == 3 && chain.is_some(){
+                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
+                    profile.chain = chain.clone().ok_or(Error::UnexpectedError)?;
+                    self.issuer_profile.insert(key,&profile);
+
+                }else if index == 4 && status.is_some() {
+                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
+                    profile.is_active = status.ok_or(Error::UnexpectedError)?;
+                    self.issuer_profile.insert(key,&profile);
+                }
+            };
+
+            Ok(())
+        }
     }
 }
