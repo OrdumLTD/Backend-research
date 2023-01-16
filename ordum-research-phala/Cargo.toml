@@ -1,7 +1,7 @@
 [package]
 name = "ordum"
 version = "0.1.0"
-authors = ["[MrishoLukamba@Ordum] <[]>"]
+authors = ["[MrishoLukamba@Ordum] <[ordum@protonmail.com]>"]
 edition = "2021"
 
 [dependencies]

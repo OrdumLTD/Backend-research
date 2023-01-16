@@ -25,6 +25,8 @@ pub enum Error {
     NotAuthorized,
     AccountDontExists,
     ProfileDontExists,
+    MaxKeysExceeded,
+    AccountExistsOrMaxExceeded,
     /// Any system related error
     UnexpectedError,
 }
@@ -38,13 +40,17 @@ pub struct ApplicantProfile {
     team_size: u8,
     account_id: AccountId,
     description: String,
+    registered_time: Timestamp,
+    applications:Option<u8>
 }
 
 impl ApplicantProfile {
     pub fn new(
         name: String, team_size:u8,
         description: String,
-        account: AccountId
+        account: AccountId,
+        time: Timestamp
+
     ) -> CreateResult<Self> {
 
         Ok(Self {
@@ -52,6 +58,8 @@ impl ApplicantProfile {
             team_size,
             account_id: account,
             description,
+            registered_time: time,
+            applications: None
         })
     }
 }
@@ -125,7 +133,7 @@ pub enum KeyAction{
 }
 
 impl KeyManagement {
-    pub fn new(admin: AccountId) ->CreateResult<()>{
+    pub fn new(admin: AccountId, accounts: Vec<AccountId>) ->CreateResult<()>{
         Self{
             admin,
             key_pointer: admin,
@@ -133,27 +141,29 @@ impl KeyManagement {
         };
         Ok(())
     }
-    pub fn update_keys_inner(&mut self, key: AccountId, action:KeyAction) {
+    pub fn update_keys_inner(&mut self, key: AccountId, action:KeyAction) -> CreateResult<()> {
        match action {
             KeyAction::ADD => {
-                if !self.allowed_keys.contains(&key) {
+                if !self.allowed_keys.contains(&key) && self.allowed_keys.len() as u8 <= MAX_KEYS {
                     self.allowed_keys.push(key);
+                    Ok(())
                 }else{
-                    () // For the time being it does nothing, proper error handling will be introduced
+                    Err(Error::AccountExistsOrMaxExceeded)// For the time being it does nothing, proper error handling will be introduced
                 }
             },
             KeyAction::REMOVE => {
                if let Some(index) = self.allowed_keys.iter().position(|k| *k == key){
                    self.allowed_keys.remove(index);
+                   Ok(())
                }else{
-                   () // Does nothing, The era of Nothingness
+                   Err(Error::AccountDontExists) // Does nothing, The era of Nothingness
                }
             },
            KeyAction::ChangeAdmin => {
                 self.admin = key;
+                Ok(())
            }
-        };
-
+        }
     }
 }
 
@@ -222,7 +232,7 @@ impl SpreadLayout for IssuerProfile {
     }
 }
 impl SpreadLayout for ApplicantProfile {
-    const FOOTPRINT: u64 = 4;
+    const FOOTPRINT: u64 = 6;
 
     fn pull_spread(ptr: &mut KeyPtr) -> Self {
         Self {
@@ -230,6 +240,8 @@ impl SpreadLayout for ApplicantProfile {
             description: SpreadLayout::pull_spread(ptr),
             team_size: SpreadLayout::pull_spread(ptr),
             account_id: SpreadLayout::pull_spread(ptr),
+            applications: SpreadLayout::pull_spread(ptr),
+            registered_time: SpreadLayout::pull_spread(ptr),
         }
     }
 
@@ -238,6 +250,9 @@ impl SpreadLayout for ApplicantProfile {
         SpreadLayout::push_spread(&self.description, ptr);
         SpreadLayout::push_spread(&self.team_size, ptr);
         SpreadLayout::push_spread(&self.account_id, ptr);
+        SpreadLayout::push_spread(&self.applications, ptr);
+        SpreadLayout::push_spread(&self.registered_time, ptr);
+
     }
 
     fn clear_spread(&self, ptr: &mut KeyPtr) {
@@ -245,6 +260,9 @@ impl SpreadLayout for ApplicantProfile {
         SpreadLayout::clear_spread(&self.description, ptr);
         SpreadLayout::clear_spread(&self.account_id,ptr);
         SpreadLayout::clear_spread(&self.team_size,ptr);
+        SpreadLayout::clear_spread(&self.applications,ptr);
+        SpreadLayout::clear_spread(&self.registered_time,ptr);
+
     }
 
 }
@@ -255,6 +273,9 @@ impl PackedLayout for ApplicantProfile {
         PackedLayout::pull_packed(&mut self.description, at);
         PackedLayout::pull_packed(&mut self.team_size, at);
         PackedLayout::pull_packed(&mut self.account_id, at);
+        PackedLayout::pull_packed(&mut self.applications, at);
+        PackedLayout::pull_packed(&mut self.registered_time, at);
+
     }
 
     fn push_packed(&self, at: &Key) {
@@ -262,6 +283,9 @@ impl PackedLayout for ApplicantProfile {
         PackedLayout::push_packed(&self.description, at);
         PackedLayout::push_packed(&self.account_id, at);
         PackedLayout::push_packed(&self.team_size, at);
+        PackedLayout::push_packed(&self.applications, at);
+        PackedLayout::push_packed(&self.registered_time, at);
+
     }
 
     fn clear_packed(&self, at: &Key) {
@@ -269,6 +293,9 @@ impl PackedLayout for ApplicantProfile {
         PackedLayout::clear_packed(&self.description, at);
         PackedLayout::clear_packed(&self.team_size, at);
         PackedLayout::clear_packed(&self.account_id, at);
+        PackedLayout::clear_packed(&self.applications, at);
+        PackedLayout::clear_packed(&self.registered_time, at);
+
     }
 
 }
@@ -349,16 +376,20 @@ pub type CreateResult<T> = Result<T,Error>;
 #[ink::trait_definition]
 pub trait CreateProfile {
 
-    /// Creates Applicant Profile,a function which takes on `name: String`
-    ///  `account: AccountId`, `size: u8`, `description: String`
+    /// Creates Applicant Profile,a function which takes on `name`
+    ///  `optional applicant profile`, `team-size`, `description`
+    /// The optional account act as Team's profile account. If not provided caller's
+    /// account will be used as Team's profile account.
+    ///
     /// In Phala context this function will be dispatched following block production
     /// as it takes in `&mut self`.
     #[ink(message,selector =0xC0DE0001)]
-    fn create_appl_profile(
+    fn create_applicant_profile(
 
         &mut self, name: String,
-        account: AccountId,
-        team_size: u8, description: String
+        account: Option<AccountId>,
+        team_size: u8, description: String,
+        allowed_accounts: Option<Vec<AccountId>>
 
     ) -> CreateResult<()>;
 
@@ -386,18 +417,20 @@ pub trait CreateProfile {
 
     /// Adding and removing allowed accounts by the `admin`
     /// This will allow not only one person who is privileged to manage an account but also
-    /// multiple allowed accounts.
+    /// multiple allowed accounts. Max allowed accounts is a fixed constant [MAX_KEYS].
+    ///
     /// Worst case scenario, time complexity will be `O(n)` with a best case of `O(1)`
     /// In Phala context this function will be dispatched following block production
     /// as it takes in `&mut self`.
     #[ink(message, selector = 0xC0DE0003)]
-    fn update_keys(&mut self,account: AccountId,action: KeyAction);
+    fn update_keys(&mut self,account: AccountId,action: KeyAction) -> CreateResult<()>;
 
 
     /// Updating Grant Issuer with limitation of only `description`, `categories`,
     /// `chain`, `status` which can be updated to the profile.
     /// Any account member in `allowed accounts` have the privileges for updating.
     /// Worst case scenario, time complexity will be `O(n)` with a best case of `O(1)`
+    ///
     /// In Phala context this function will be dispatched following block production
     /// as it takes in `&mut self`.
     #[ink(message,payable,selector = 0xC0DE0004)]
@@ -417,11 +450,11 @@ pub trait CreateProfile {
 // ----------CONTRACT IMPLEMENTATION--------------------------------------//
 
 #[ink::contract]
-mod ordum{
+mod ordum {
     use ink_lang::utils::initialize_contract;
     use ink_storage::Mapping;
     use ink_storage::traits::SpreadAllocate;
-    use crate::{CreateResult, KeyAction, KeyManagement};
+    use crate::{CreateResult, KeyAction, KeyManagement, MAX_KEYS};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
@@ -429,7 +462,6 @@ mod ordum{
     #[ink(storage)]
     #[derive(SpreadAllocate)]
     pub struct OrdumState {
-        //Experinmental Multi-Key management
         issuer_profile: Mapping<AccountId,IssuerProfile>,
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
         // Multi-Key Management
@@ -492,45 +524,129 @@ mod ordum{
         }
 
         // Getters
-        /*#[ink(message,selector=0xC0DE1002)]
-        pub fn get_issuer_profile(&self, account: AccountId) -> CreateResult<IssuerProfile>{
-            if self.issuer_profile.contains(account){
-                Ok(self.issuer_profile.get(account).unwrap().unwrap())
+        #[ink(message,selector=0xC0DE1002)]
+        pub fn get_issuer_profile(&self) -> CreateResult<IssuerProfile>{
+
+            let caller = Self::env().caller();
+            // Check if the caller is authorized to retrieve Applicant profile
+            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+                let profile = self.issuer_profile.get(wallet.key_pointer)
+                    .ok_or(Error::UnexpectedError)?;
+                Ok(profile)
             }else{
                 Err(Error::AccountDontExists)
             }
-        }*/
+        }
 
         #[ink(message,selector=0xC0DE1001)]
-        pub fn get_app_profile(&self, account: AccountId) -> CreateResult<ApplicantProfile>{
-            if self.applicant_profile.contains(account){
-                Ok(self.applicant_profile.get(account).unwrap())
+        pub fn get_applicant_profile(&self) -> CreateResult<ApplicantProfile>{
+
+            let caller = Self::env().caller();
+            // Check if the caller is authorized to retrieve Applicant profile
+            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+                let profile = self.applicant_profile.get(wallet.key_pointer)
+                    .ok_or(Error::UnexpectedError)?;
+                Ok(profile)
             }else{
                 Err(Error::AccountDontExists)
             }
+
         }
 
     }
 
     impl CreateProfile for OrdumState {
         #[ink(message,selector =0xC0DE0001)]
-        fn create_appl_profile(
+        fn create_applicant_profile(
             &mut self, name: String,
-            account: AccountId, team_size: u8,
-            description: String
+            account: Option<AccountId>, team_size: u8,
+            description: String,
+            allowed_accounts: Option<Vec<AccountId>>
         ) -> CreateResult<()> {
 
-            if !self.applicant_profile.contains(account){
+            let applicant = Self::env().caller();
+            let time = Self::env().block_timestamp();
 
-                let applicant = Self::env().caller();
-                let appl_data = ApplicantProfile::new(name,team_size,description,account)
-                    .map_err(|_|Error::UnexpectedError)?;
-                self.applicant_profile.insert(&applicant,&appl_data);
+            // Check if account is provided or else use applicant account
+            if let Some(account_inner) = account {
 
-                Ok(())
-            }else {
-                Err(Error::AccountExists)
+                if let Some(mut allowed_acc) = allowed_accounts {
+                    // Create KeyManagement
+                    let mut wallet = KeyManagement {
+                        admin: applicant,
+                        key_pointer: account_inner,
+                        allowed_keys: vec![applicant],
+                    };
+                    wallet.allowed_keys.append(&mut allowed_acc);
+
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time)
+                        .map_err(|_|Error::UnexpectedError)?;
+                    self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+
+                    // Register Keys
+                    self.manage_keys.push(wallet);
+
+                    Ok(())
+
+                } else {
+                    // If no allowed-accounts provided
+                    // Create KeyManagement
+                    let wallet = KeyManagement {
+                        admin: applicant,
+                        key_pointer: account_inner,
+                        allowed_keys: vec![applicant],
+                    };
+
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time)
+                        .map_err(|_|Error::UnexpectedError)?;
+                    self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+
+                    // Register Keys
+                    self.manage_keys.push(wallet);
+
+                    Ok(())
+                }
+            } else {
+                // If no account provided, applicant will be used.
+                if let Some(mut allowed_acc) = allowed_accounts {
+                    let mut wallet = KeyManagement { admin: applicant,
+                        key_pointer: applicant,
+                        allowed_keys: vec![applicant],
+                    };
+                    wallet.allowed_keys.append(&mut allowed_acc);
+
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time)
+                        .map_err(|_| Error::UnexpectedError)?;
+                    self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
+
+                    // Register Keys
+                    self.manage_keys.push(wallet);
+
+                    Ok(())
+
+                }else {
+                    let mut wallet = KeyManagement {
+                        admin: applicant,
+                        key_pointer: applicant,
+                        allowed_keys: vec![applicant],
+                    };
+
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time)
+                        .map_err(|_| Error::UnexpectedError)?;
+                    self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
+
+                    // Register Keys
+                    self.manage_keys.push(wallet);
+
+                    Ok(())
+                }
             }
+
+
         }
 
         #[ink(message, selector =0xC0DE0002)]
@@ -544,8 +660,12 @@ mod ordum{
 
             let issuer_admin = Self::env().caller();
 
-            // Checking if the account is already registered
+            // Check if the keys are less that MAX_KEYS
+            if allowed_accounts.len() as u8 >= MAX_KEYS {
+                return Err(Error::MaxKeysExceeded)
+            }
 
+            // Checking if the admin-account is already registered
             if let Some(_key) =  self.manage_keys.iter()
                 .find(|&k| k.admin == issuer_admin){
                 return Err(Error::AccountExists)?;
@@ -556,12 +676,13 @@ mod ordum{
                 let profile = IssuerProfile::new(name,chain,categories,time,description)
                     .map_err(|_|Error::UnexpectedError)?;
 
-                let wallet = KeyManagement {
+                let mut wallet = KeyManagement {
                     admin: issuer_admin,
                     key_pointer: issuer_admin,
-                    allowed_keys: allowed_accounts
+                    allowed_keys: vec![issuer_admin]
                 };
 
+                wallet.allowed_keys.append(&mut allowed_accounts.clone());
 
                 // Registering to the storage
                 self.issuer_profile.insert(wallet.key_pointer,&profile);
@@ -577,7 +698,7 @@ mod ordum{
 
         }
         #[ink(message, selector = 0xC0DE0003)]
-        fn update_keys(&mut self, account: AccountId, action: KeyAction) {
+        fn update_keys(&mut self, account: AccountId, action: KeyAction) -> CreateResult<()> {
             let caller = Self::env().caller();
             // check if the account is registered as admin
             // Iterating over KeyManagement object and checking admin value
@@ -588,20 +709,24 @@ mod ordum{
                     None
                 }
             });
+
             match result {
                 Some(mut acc_manage) => {
-                   acc_manage.update_keys_inner(account,action);
+                   acc_manage.update_keys_inner(account,action)?;
+                    Ok(())
                 },
-                None => ()
+                None => Err(Error::NotAuthorized)
             }
         }
 
         #[ink(message, payable, selector = 0xC0DE0004)]
         fn update_issuer_profile(
+
             &mut self, description: Option<String>,
             categories: Option<Vec<String>>,
             chain: Option<Option<String>>,
             status: Option<bool>
+
         ) -> CreateResult<()> {
             // Authorization logic
             let caller = Self::env().caller();
@@ -618,7 +743,8 @@ mod ordum{
             let key = key.ok_or(Error::NotAuthorized)?;
 
            // If the key is present
-            for index in 1..=4{
+            for index in 1..=4 {
+
                 if index == 1 && description.is_some(){
                     let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
                     profile.description = description.clone().ok_or(Error::UnexpectedError)?;
