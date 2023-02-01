@@ -17,16 +17,62 @@ use ink_types::Timestamp;
 /// Constants
 const MAX_KEYS:u8 = 3;
 
+
+// Enums & Structs
+
+#[derive(Encode,Decode,Clone,Debug)]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(SpreadLayout,PackedLayout)]
+pub enum Categories {
+    //DeSci,
+    //DeFi,
+    PublicGood,
+    //NFT,
+    //ProtocolResearch,
+    Infrastructure,
+    //DeCommerce,
+    //Governance,
+    //Miscellaneous,
+    MediaArt,
+}
+
+impl Default for Categories {
+    fn default() -> Self {
+       Categories::PublicGood
+    }
+}
+
+#[derive(Encode,Decode,Clone, Debug)]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(SpreadLayout,PackedLayout)]
+pub enum Chains {
+    Polkadot,
+    //Near,
+    OffChain,
+    //Ethereum,
+    //Cardano
+}
+
+impl Default for Chains {
+    fn default() -> Self {
+        Chains::Polkadot
+    }
+}
+// --------------------------------------------------------------------//
+
+
 /// Error type for Create Profile
 #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
 #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum Error {
+    // Profile creation errors
     AccountExists,
     NotAuthorized,
     AccountDontExists,
     ProfileDontExists,
     MaxKeysExceeded,
     AccountExistsOrMaxExceeded,
+    // Grant Application errors
     /// Any system related error
     UnexpectedError,
 }
@@ -35,13 +81,15 @@ pub enum Error {
 ///  A grant applicant profile
 #[derive(Clone,Encode,Default, Decode, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(SpreadLayout,PackedLayout)]
 pub struct ApplicantProfile {
     name: String,
     team_size: u8,
     account_id: AccountId,
     description: String,
     registered_time: Timestamp,
-    applications:Option<u8>
+    applications:Option<u8>,
+    categories: Vec<Categories>
 }
 
 impl ApplicantProfile {
@@ -49,8 +97,8 @@ impl ApplicantProfile {
         name: String, team_size:u8,
         description: String,
         account: AccountId,
-        time: Timestamp
-
+        time: Timestamp,
+        categories: Vec<Categories>,
     ) -> CreateResult<Self> {
 
         Ok(Self {
@@ -59,21 +107,25 @@ impl ApplicantProfile {
             account_id: account,
             description,
             registered_time: time,
-            applications: None
+            applications: None,
+            categories,
         })
     }
 }
+
 
 /// A grant issuer profile
 /// The order is important in Contract Upgrades
 #[derive(Encode,Clone,Default, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(PackedLayout,SpreadLayout)]
 pub struct IssuerProfile {
     name: String,
-    chain: Option<String>,
+    id: u16,
+    chain: Chains,
     is_active: bool,
     registration_date: Timestamp,
-    categories: Option<Vec<String>>,
+    categories: Vec<Categories>,
     description: String,
     applications: Option<Vec<u16>>,
 }
@@ -82,15 +134,16 @@ pub struct IssuerProfile {
 impl IssuerProfile {
     pub fn new(
         name: String,
-        chain: Option<String>,
-        categories: Option<Vec<String>>,
+        chain: Chains,
+        categories: Vec<Categories>,
         time: Timestamp,
         description: String
 
     ) -> CreateResult<Self> {
-
+        let id = (time % 999).try_into().map_err(|_|Error::UnexpectedError)?;
         Ok(Self{
             name,
+            id,
             chain,
             is_active: true,
             registration_date: time,
@@ -98,15 +151,6 @@ impl IssuerProfile {
             description,
             applications: None,
         })
-    }
-    pub fn update_description(&mut self,description: String) -> CreateResult<()> {
-        self.description = description;
-        Ok(())
-    }
-
-    pub fn update_grant_status(&mut self, status: bool) -> CreateResult<()>{
-        self.is_active = status;
-        Ok(())
     }
 
 }
@@ -117,7 +161,7 @@ impl IssuerProfile {
 /// The `key_pointer` is the key used in the key to `IssuerProfile` mapping
 #[derive(Clone,Encode,Hash, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadAllocate)]
+#[derive(SpreadAllocate,PackedLayout,SpreadLayout)]
 pub struct KeyManagement{
     admin: AccountId,
     key_pointer: AccountId, // Account Id for now
@@ -133,7 +177,7 @@ pub enum KeyAction{
 }
 
 impl KeyManagement {
-    pub fn new(admin: AccountId, accounts: Vec<AccountId>) ->CreateResult<()>{
+    pub fn new(admin: AccountId) ->CreateResult<()>{
         Self{
             admin,
             key_pointer: admin,
@@ -167,196 +211,9 @@ impl KeyManagement {
     }
 }
 
-// Required traits to work on custom data structures
-impl SpreadLayout for KeyManagement {
-    const FOOTPRINT: u64 = 3;
 
-    fn pull_spread(ptr: &mut KeyPtr) -> Self {
-        Self {
-            admin: SpreadLayout::pull_spread(ptr),
-            key_pointer: SpreadLayout::pull_spread(ptr),
-            allowed_keys: SpreadLayout::pull_spread(ptr),
-        }
-    }
+//-------- Extra traits for custom data structure ------------
 
-    fn push_spread(&self, ptr: &mut KeyPtr) {
-        SpreadLayout::push_spread(&self.admin,ptr);
-        SpreadLayout::push_spread(&self.key_pointer,ptr);
-        SpreadLayout::push_spread(&self.allowed_keys,ptr);
-
-    }
-
-    fn clear_spread(&self, ptr: &mut KeyPtr) {
-        SpreadLayout::clear_spread(&self.admin, ptr);
-        SpreadLayout::clear_spread(&self.key_pointer,ptr);
-        SpreadLayout::clear_spread(&self.allowed_keys,ptr);
-
-    }
-}
-
-impl SpreadLayout for IssuerProfile {
-    const FOOTPRINT: u64 = 8;
-
-    fn pull_spread(ptr: &mut KeyPtr) -> Self {
-        Self {
-            name: SpreadLayout::pull_spread(ptr),
-            chain: SpreadLayout::pull_spread(ptr),
-            is_active: SpreadLayout::pull_spread(ptr),
-            registration_date: SpreadLayout::pull_spread(ptr),
-            categories: SpreadLayout::pull_spread(ptr),
-            description: SpreadLayout::pull_spread(ptr),
-            applications: SpreadLayout::pull_spread(ptr),
-        }
-    }
-
-    fn push_spread(&self, ptr: &mut KeyPtr) {
-        SpreadLayout::push_spread(&self.name, ptr);
-        SpreadLayout::push_spread(&self.chain, ptr);
-        SpreadLayout::push_spread(&self.is_active, ptr);
-        SpreadLayout::push_spread(&self.registration_date, ptr);
-        SpreadLayout::push_spread(&self.categories, ptr);
-        SpreadLayout::push_spread(&self.description, ptr);
-        SpreadLayout::push_spread(&self.applications, ptr);
-
-    }
-
-    fn clear_spread(&self, ptr: &mut KeyPtr) {
-        SpreadLayout::clear_spread(&self.name, ptr);
-        SpreadLayout::clear_spread(&self.chain, ptr);
-        SpreadLayout::clear_spread(&self.is_active, ptr);
-        SpreadLayout::clear_spread(&self.registration_date, ptr);
-        SpreadLayout::clear_spread(&self.categories, ptr);
-        SpreadLayout::clear_spread(&self.description, ptr);
-        SpreadLayout::clear_spread(&self.applications, ptr);
-
-    }
-}
-impl SpreadLayout for ApplicantProfile {
-    const FOOTPRINT: u64 = 6;
-
-    fn pull_spread(ptr: &mut KeyPtr) -> Self {
-        Self {
-            name: SpreadLayout::pull_spread(ptr),
-            description: SpreadLayout::pull_spread(ptr),
-            team_size: SpreadLayout::pull_spread(ptr),
-            account_id: SpreadLayout::pull_spread(ptr),
-            applications: SpreadLayout::pull_spread(ptr),
-            registered_time: SpreadLayout::pull_spread(ptr),
-        }
-    }
-
-    fn push_spread(&self, ptr: &mut KeyPtr) {
-        SpreadLayout::push_spread(&self.name, ptr);
-        SpreadLayout::push_spread(&self.description, ptr);
-        SpreadLayout::push_spread(&self.team_size, ptr);
-        SpreadLayout::push_spread(&self.account_id, ptr);
-        SpreadLayout::push_spread(&self.applications, ptr);
-        SpreadLayout::push_spread(&self.registered_time, ptr);
-
-    }
-
-    fn clear_spread(&self, ptr: &mut KeyPtr) {
-        SpreadLayout::clear_spread(&self.name, ptr);
-        SpreadLayout::clear_spread(&self.description, ptr);
-        SpreadLayout::clear_spread(&self.account_id,ptr);
-        SpreadLayout::clear_spread(&self.team_size,ptr);
-        SpreadLayout::clear_spread(&self.applications,ptr);
-        SpreadLayout::clear_spread(&self.registered_time,ptr);
-
-    }
-
-}
-
-impl PackedLayout for ApplicantProfile {
-    fn pull_packed(&mut self, at: &Key) {
-        PackedLayout::pull_packed(&mut self.name, at);
-        PackedLayout::pull_packed(&mut self.description, at);
-        PackedLayout::pull_packed(&mut self.team_size, at);
-        PackedLayout::pull_packed(&mut self.account_id, at);
-        PackedLayout::pull_packed(&mut self.applications, at);
-        PackedLayout::pull_packed(&mut self.registered_time, at);
-
-    }
-
-    fn push_packed(&self, at: &Key) {
-        PackedLayout::push_packed(&self.name, at);
-        PackedLayout::push_packed(&self.description, at);
-        PackedLayout::push_packed(&self.account_id, at);
-        PackedLayout::push_packed(&self.team_size, at);
-        PackedLayout::push_packed(&self.applications, at);
-        PackedLayout::push_packed(&self.registered_time, at);
-
-    }
-
-    fn clear_packed(&self, at: &Key) {
-        PackedLayout::clear_packed(&self.name, at);
-        PackedLayout::clear_packed(&self.description, at);
-        PackedLayout::clear_packed(&self.team_size, at);
-        PackedLayout::clear_packed(&self.account_id, at);
-        PackedLayout::clear_packed(&self.applications, at);
-        PackedLayout::clear_packed(&self.registered_time, at);
-
-    }
-
-}
-
-impl PackedLayout for IssuerProfile {
-    fn pull_packed(&mut self, at: &Key) {
-        PackedLayout::pull_packed(&mut self.name, at);
-        PackedLayout::pull_packed(&mut self.chain, at);
-        PackedLayout::pull_packed(&mut self.is_active, at);
-        PackedLayout::pull_packed(&mut self.registration_date, at);
-        PackedLayout::pull_packed(&mut self.categories, at);
-        PackedLayout::pull_packed(&mut self.description, at);
-        PackedLayout::pull_packed(&mut self.applications, at);
-
-    }
-
-    fn push_packed(&self, at: &Key) {
-        PackedLayout::push_packed(&self.name, at);
-        PackedLayout::push_packed(&self.chain, at);
-        PackedLayout::push_packed(&self.is_active, at);
-        PackedLayout::push_packed(&self.registration_date, at);
-        PackedLayout::push_packed(&self.categories, at);
-        PackedLayout::push_packed(&self.description, at);
-        PackedLayout::push_packed(&self.applications, at);
-
-    }
-
-    fn clear_packed(&self, at: &Key) {
-        PackedLayout::clear_packed(&self.name, at);
-        PackedLayout::clear_packed(&self.description, at);
-        PackedLayout::clear_packed(&self.chain, at);
-        PackedLayout::clear_packed(&self.registration_date, at);
-        PackedLayout::clear_packed(&self.categories, at);
-        PackedLayout::clear_packed(&self.is_active, at);
-        PackedLayout::clear_packed(&self.applications, at);
-
-    }
-}
-
-impl PackedLayout for KeyManagement {
-    fn pull_packed(&mut self, at: &Key) {
-        PackedLayout::pull_packed(&mut self.admin, at);
-        PackedLayout::pull_packed(&mut self.key_pointer, at);
-        PackedLayout::pull_packed(&mut self.allowed_keys, at);
-
-    }
-
-    fn push_packed(&self, at: &Key) {
-        PackedLayout::push_packed(&self.admin, at);
-        PackedLayout::push_packed(&self.key_pointer,at);
-        PackedLayout::push_packed(&self.allowed_keys,at);
-
-    }
-
-    fn clear_packed(&self, at: &Key) {
-        PackedLayout::clear_packed(&self.admin,at);
-        PackedLayout::clear_packed(&self.key_pointer, at);
-        PackedLayout::clear_packed(&self.allowed_keys, at);
-
-    }
-}
 impl PackedAllocate for KeyManagement {
     fn allocate_packed(&mut self, at: &Key) {
         PackedAllocate::allocate_packed(&mut self.admin,at);
@@ -369,6 +226,7 @@ impl PackedAllocate for KeyManagement {
 
 /// Result type for Create Profile
 pub type CreateResult<T> = Result<T,Error>;
+pub type ApplicationResult<T> = Result<T,Error>;
 
 /// Trait definition for Creating a Profile
 /// This trait can be used both at individual, institutional applicants or grants issuer
@@ -389,7 +247,8 @@ pub trait CreateProfile {
         &mut self, name: String,
         account: Option<AccountId>,
         team_size: u8, description: String,
-        allowed_accounts: Option<Vec<AccountId>>
+        allowed_accounts: Option<Vec<AccountId>>,
+        categories: Vec<Categories>
 
     ) -> CreateResult<()>;
 
@@ -407,8 +266,8 @@ pub trait CreateProfile {
     fn create_issuer_profile(
 
         &mut self, name: String,
-        chain: Option<String>,
-        categories: Option<Vec<String>>,
+        chain: Chains,
+        categories: Vec<Categories>,
         description: String,
         allowed_accounts: Vec<AccountId>
 
@@ -437,8 +296,8 @@ pub trait CreateProfile {
     fn update_issuer_profile(
 
         &mut self,description:Option<String>,
-        categories: Option<Vec<String>>, // This replaces the existing categories
-        chain: Option<Option<String>>,
+        categories: Option<Vec<Categories>>, // This replaces the existing categories
+        chain: Option<Chains>,
         status: Option<bool>
 
     ) -> CreateResult<()>;
@@ -453,8 +312,9 @@ pub trait CreateProfile {
 mod ordum {
     use ink_lang::utils::initialize_contract;
     use ink_storage::Mapping;
+    use pink_extension::{http_get, PinkEnvironment};
     use ink_storage::traits::SpreadAllocate;
-    use crate::{CreateResult, KeyAction, KeyManagement, MAX_KEYS};
+    use crate::{Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
@@ -565,7 +425,9 @@ mod ordum {
             &mut self, name: String,
             account: Option<AccountId>, team_size: u8,
             description: String,
-            allowed_accounts: Option<Vec<AccountId>>
+            allowed_accounts: Option<Vec<AccountId>>,
+            categories: Vec<Categories>
+
         ) -> CreateResult<()> {
 
             let applicant = Self::env().caller();
@@ -573,6 +435,10 @@ mod ordum {
 
             // Check if account is provided or else use applicant account
             if let Some(account_inner) = account {
+                // Check if account exists
+                if self.applicant_profile.contains(account_inner){
+                    return Err(Error::AccountExists);
+                }
 
                 if let Some(mut allowed_acc) = allowed_accounts {
                     // Create KeyManagement
@@ -583,13 +449,17 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time)
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
                         .map_err(|_|Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
 
                     // Register Keys
                     self.manage_keys.push(wallet);
-
+                    // Emits an event
+                    Self::env().emit_event(ApplicantAccountCreated{
+                        name:applicant_data.name,
+                        time,
+                    });
                     Ok(())
 
                 } else {
@@ -601,16 +471,25 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time)
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
                         .map_err(|_|Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
 
                     // Register Keys
                     self.manage_keys.push(wallet);
+                    // Emits an event
+                    Self::env().emit_event(ApplicantAccountCreated{
+                        name:applicant_data.name,
+                        time,
+                    });
 
                     Ok(())
                 }
             } else {
+                // Check if account Exists
+                if self.applicant_profile.contains(applicant){
+                   return  Err(Error::AccountExists)
+                }
                 // If no account provided, applicant will be used.
                 if let Some(mut allowed_acc) = allowed_accounts {
                     let mut wallet = KeyManagement { admin: applicant,
@@ -619,29 +498,38 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time)
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
                         .map_err(|_| Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
 
                     // Register Keys
                     self.manage_keys.push(wallet);
+                    // Emits an event
+                    Self::env().emit_event(ApplicantAccountCreated{
+                        name:applicant_data.name,
+                        time,
+                    });
 
                     Ok(())
 
                 }else {
-                    let mut wallet = KeyManagement {
+                    let wallet = KeyManagement {
                         admin: applicant,
                         key_pointer: applicant,
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time)
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
                         .map_err(|_| Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
 
                     // Register Keys
                     self.manage_keys.push(wallet);
-
+                    // Emits an event
+                    Self::env().emit_event(ApplicantAccountCreated{
+                        name:applicant_data.name,
+                        time,
+                    });
                     Ok(())
                 }
             }
@@ -652,14 +540,17 @@ mod ordum {
         #[ink(message, selector =0xC0DE0002)]
         fn create_issuer_profile(
             &mut self, name: String,
-            chain: Option<String>,
-            categories: Option<Vec<String>>,
+            chain: Chains,
+            categories: Vec<Categories>,
             description: String,
             allowed_accounts: Vec<AccountId>
         ) -> CreateResult<()> {
 
             let issuer_admin = Self::env().caller();
-
+            // Check if account is registered
+            if self.issuer_profile.contains(issuer_admin){
+                return Err(Error::AccountExists)
+            }
             // Check if the keys are less that MAX_KEYS
             if allowed_accounts.len() as u8 >= MAX_KEYS {
                 return Err(Error::MaxKeysExceeded)
@@ -689,10 +580,11 @@ mod ordum {
                 self.manage_keys.push(wallet);
 
                 // Emit an event
-                /*ink_env::emit_event(IssuerAccountCreated {
+                Self::env().emit_event(IssuerAccountCreated {
                     name: profile.clone().name,
                     time,
-                });*/
+                });
+
                 Ok(())
             }
 
@@ -723,8 +615,8 @@ mod ordum {
         fn update_issuer_profile(
 
             &mut self, description: Option<String>,
-            categories: Option<Vec<String>>,
-            chain: Option<Option<String>>,
+            categories: Option<Vec<Categories>>,
+            chain: Option<Chains>,
             status: Option<bool>
 
         ) -> CreateResult<()> {
@@ -752,7 +644,7 @@ mod ordum {
 
                 }else if index == 2 && categories.is_some() {
                     let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
-                    profile.categories = categories.clone();
+                    profile.categories = categories.clone().ok_or(Error::UnexpectedError)?;
                     self.issuer_profile.insert(key,&profile);
 
                 }else if index == 3 && chain.is_some(){
