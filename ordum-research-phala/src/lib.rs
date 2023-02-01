@@ -14,6 +14,7 @@ use ink_storage::traits::SpreadAllocate;
 use ink_types::Timestamp;
 
 
+
 /// Constants
 const MAX_KEYS:u8 = 3;
 
@@ -59,6 +60,19 @@ impl Default for Chains {
     }
 }
 // --------------------------------------------------------------------//
+
+
+/// Application profile , this consist of `application_id`, `applicant_name`, `issuer_id / name`
+/// and `reference of the application profile file`
+#[derive(Encode,Decode,Clone, Debug)]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(SpreadAllocate,SpreadLayout,PackedLayout)]
+pub struct Application{
+    pub id: u32,
+    pub team_name: String,
+    pub issuer_id: u16,
+    pub issuer_name: String,
+}
 
 
 /// Error type for Create Profile
@@ -246,6 +260,15 @@ impl PackedAllocate for Categories {
     }
 }
 
+impl PackedAllocate for Application {
+    fn allocate_packed(&mut self, at: &Key) {
+        PackedAllocate::allocate_packed(&mut self.id,at);
+        PackedAllocate::allocate_packed(&mut self.issuer_id, at);
+        PackedAllocate::allocate_packed(&mut self.team_name,at);
+        PackedAllocate::allocate_packed(&mut self.issuer_name,at);
+    }
+}
+
 impl SpreadAllocate for Chains {
     fn allocate_spread(ptr: &mut KeyPtr) -> Self {
         ptr.advance_by(<Self as SpreadLayout>::FOOTPRINT);
@@ -257,8 +280,10 @@ impl PackedAllocate for Chains {
     fn allocate_packed(&mut self, at: &Key) {
         if self == &Chains::Polkadot {
             PackedAllocate::allocate_packed(&mut Chains::Polkadot, at);
+        }else if self == &Chains::OffChain {
+            PackedAllocate::allocate_packed(&mut Chains::OffChain,at);
         };
-       // PackedAllocate::allocate_packed(&mut Chains::OffChain,at);
+
     }
 }
 
@@ -377,6 +402,9 @@ pub trait OffchainApply {
 
     #[ink(message,selector = 0xC0DE0006)]
     fn update_application(&mut self) -> ApplicationResult<()>;
+
+    #[ink(message,selector = 0xC0DE0007)]
+    fn review_application(&mut self) -> ApplicationResult<()>;
 }
 
 /// Trait definition for on-chain grant application process (e.g Kusama treasury )
@@ -384,8 +412,9 @@ pub trait OffchainApply {
 pub trait OnchainGrant {
 
     /// This will be used to attest the success of the grant and the team
-     #[ink(message,selector = 0xC0DE0007)]
-    fn issue_certificate(&self) -> ApplicationResult<()>;
+    /// This can only be used after community consensus and form the parameters of legitimacy
+     #[ink(message,selector = 0xC0DE0008)]
+    fn issue_treasury_certificate(&self) -> ApplicationResult<()>;
 
 }
 
@@ -399,7 +428,7 @@ mod ordum {
     use ink_storage::Mapping;
     use pink_extension::{http_get, PinkEnvironment};
     use ink_storage::traits::SpreadAllocate;
-    use crate::{Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS};
+    use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
@@ -411,7 +440,10 @@ mod ordum {
         list_issuer_profile: Vec<IssuerProfile>,
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
         list_applicant_profile: Vec<ApplicantProfile>,
-        queue_applications:Mapping<u16,Mapping<u32,Vec<u8>>>,
+        // Mapping issuer_id to a mapping of  application number to application profile
+        // As this will enable specifi grant issuer to have dedicated list of queue application
+        // and also teams to have numerous application per one issuer
+        queue_applications:Mapping<u16,Mapping<u32,Vec<Application>>>,
         // Multi-Key Management
         manage_keys: Vec<KeyManagement>,
     }
