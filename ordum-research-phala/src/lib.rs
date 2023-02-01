@@ -20,7 +20,7 @@ const MAX_KEYS:u8 = 3;
 
 // Enums & Structs
 
-#[derive(Encode,Decode,Clone,Debug)]
+#[derive(Eq,PartialEq, Encode,Decode,Clone,Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 #[derive(SpreadLayout,PackedLayout)]
 pub enum Categories {
@@ -42,7 +42,7 @@ impl Default for Categories {
     }
 }
 
-#[derive(Encode,Decode,Clone, Debug)]
+#[derive(Eq, PartialEq,Encode,Decode,Clone, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 #[derive(SpreadLayout,PackedLayout)]
 pub enum Chains {
@@ -81,7 +81,7 @@ pub enum Error {
 ///  A grant applicant profile
 #[derive(Clone,Encode,Default, Decode, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadLayout,PackedLayout)]
+#[derive(SpreadAllocate,PackedLayout,SpreadLayout)]
 pub struct ApplicantProfile {
     name: String,
     team_size: u8,
@@ -118,7 +118,7 @@ impl ApplicantProfile {
 /// The order is important in Contract Upgrades
 #[derive(Encode,Clone,Default, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(PackedLayout,SpreadLayout)]
+#[derive(SpreadAllocate,PackedLayout,SpreadLayout)]
 pub struct IssuerProfile {
     name: String,
     id: u16,
@@ -214,6 +214,66 @@ impl KeyManagement {
 
 //-------- Extra traits for custom data structure ------------
 
+impl PackedAllocate for IssuerProfile{
+    fn allocate_packed(&mut self, at: &Key) {
+        PackedAllocate::allocate_packed(&mut self.categories, at);
+        PackedAllocate::allocate_packed(&mut self.id, at);
+        PackedAllocate::allocate_packed(&mut self.description, at);
+        PackedAllocate::allocate_packed(&mut self.chain, at);
+        PackedAllocate::allocate_packed(&mut self.applications, at);
+        PackedAllocate::allocate_packed(&mut self.is_active, at);
+        PackedAllocate::allocate_packed(&mut self.name, at);
+        PackedAllocate::allocate_packed(&mut self.registration_date, at);
+    }
+}
+
+impl SpreadAllocate for Categories {
+    fn allocate_spread(ptr: &mut KeyPtr) -> Self {
+        ptr.advance_by(<Self as SpreadLayout>::FOOTPRINT);
+        Categories::PublicGood
+    }
+}
+
+impl PackedAllocate for Categories {
+    fn allocate_packed(&mut self, at: &Key) {
+        if self == &Categories::PublicGood{
+            PackedAllocate::allocate_packed(&mut Categories::PublicGood,at);
+        } else if self == &Categories::MediaArt {
+            PackedAllocate::allocate_packed(&mut Categories::MediaArt,at);
+        } else if self == &Categories::Infrastructure {
+            PackedAllocate::allocate_packed(&mut Categories::Infrastructure,at);
+        }
+    }
+}
+
+impl SpreadAllocate for Chains {
+    fn allocate_spread(ptr: &mut KeyPtr) -> Self {
+        ptr.advance_by(<Self as SpreadLayout>::FOOTPRINT);
+        Chains::Polkadot
+    }
+}
+
+impl PackedAllocate for Chains {
+    fn allocate_packed(&mut self, at: &Key) {
+        if self == &Chains::Polkadot {
+            PackedAllocate::allocate_packed(&mut Chains::Polkadot, at);
+        };
+       // PackedAllocate::allocate_packed(&mut Chains::OffChain,at);
+    }
+}
+
+impl PackedAllocate for ApplicantProfile {
+    fn allocate_packed(&mut self, at: &Key) {
+        PackedAllocate::allocate_packed(&mut self.categories, at);
+        PackedAllocate::allocate_packed(&mut self.name, at);
+        PackedAllocate::allocate_packed(&mut self.applications, at);
+        PackedAllocate::allocate_packed(&mut self.description, at);
+        PackedAllocate::allocate_packed(&mut self.team_size, at);
+        PackedAllocate::allocate_packed(&mut self.registered_time, at);
+        PackedAllocate::allocate_packed(&mut self.account_id, at);
+    }
+}
+
 impl PackedAllocate for KeyManagement {
     fn allocate_packed(&mut self, at: &Key) {
         PackedAllocate::allocate_packed(&mut self.admin,at);
@@ -305,11 +365,36 @@ pub trait CreateProfile {
 }
 
 
+/// Trait defination for grant application process (Offchain e.g web3 foundation grant type)
+/// This can be used by both Applicants and Issuers
+#[ink::trait_definition]
+pub trait OffchainApply {
+
+    /// Naming convention for Offchain grant type
+    /// This function creates new application, stores is externally and commits the reference to the chain
+    #[ink(message,selector = 0xC0DE0005)]
+    fn apply_grant(&mut self) -> ApplicationResult<()>;
+
+    #[ink(message,selector = 0xC0DE0006)]
+    fn update_application(&mut self) -> ApplicationResult<()>;
+}
+
+/// Trait definition for on-chain grant application process (e.g Kusama treasury )
+#[ink::trait_definition]
+pub trait OnchainGrant {
+
+    /// This will be used to attest the success of the grant and the team
+     #[ink(message,selector = 0xC0DE0007)]
+    fn issue_certificate(&self) -> ApplicationResult<()>;
+
+}
+
 
 // ----------CONTRACT IMPLEMENTATION--------------------------------------//
 
 #[ink::contract]
 mod ordum {
+    use ink_lang::trait_definition;
     use ink_lang::utils::initialize_contract;
     use ink_storage::Mapping;
     use pink_extension::{http_get, PinkEnvironment};
@@ -323,7 +408,10 @@ mod ordum {
     #[derive(SpreadAllocate)]
     pub struct OrdumState {
         issuer_profile: Mapping<AccountId,IssuerProfile>,
+        list_issuer_profile: Vec<IssuerProfile>,
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
+        list_applicant_profile: Vec<ApplicantProfile>,
+        queue_applications:Mapping<u16,Mapping<u32,Vec<u8>>>,
         // Multi-Key Management
         manage_keys: Vec<KeyManagement>,
     }
@@ -452,6 +540,7 @@ mod ordum {
                     let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
                         .map_err(|_|Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+                    self.list_applicant_profile.push(applicant_data.clone());
 
                     // Register Keys
                     self.manage_keys.push(wallet);
@@ -474,7 +563,7 @@ mod ordum {
                     let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
                         .map_err(|_|Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
-
+                    self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
                     // Emits an event
@@ -501,7 +590,7 @@ mod ordum {
                     let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
                         .map_err(|_| Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
-
+                    self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
                     // Emits an event
@@ -522,7 +611,7 @@ mod ordum {
                     let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
                         .map_err(|_| Error::UnexpectedError)?;
                     self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
-
+                    self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
                     // Emits an event
@@ -578,6 +667,7 @@ mod ordum {
                 // Registering to the storage
                 self.issuer_profile.insert(wallet.key_pointer,&profile);
                 self.manage_keys.push(wallet);
+                self.list_issuer_profile.push(profile.clone());
 
                 // Emit an event
                 Self::env().emit_event(IssuerAccountCreated {
