@@ -2,16 +2,16 @@
 
 //--------ORDUM FIRST ITERATION IMPLEMENTATION----------//
 
-use ink_env::AccountId;
-use ink_lang as ink;
-use ink_primitives::{Key, KeyPtr};
-use ink_storage::traits::{PackedAllocate, PackedLayout, SpreadLayout, StorageLayout};
+
+use ink;
+use ink::primitives::Key;
+use ink::storage::traits::StorageLayout;
 use scale::{Decode, Encode};
-use ink_prelude::{vec::Vec,vec,string::String};
-use ink_storage::Mapping;
+use ink::prelude::{vec::Vec,vec,string::String};
+use ink::storage::Mapping;
 use core::hash::Hash;
-use ink_storage::traits::SpreadAllocate;
 use ink_types::Timestamp;
+use pink_extension::AccountId;
 
 
 
@@ -23,7 +23,6 @@ const MAX_KEYS:u8 = 3;
 
 #[derive(Eq,PartialEq, Encode,Decode,Clone,Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadLayout,PackedLayout)]
 pub enum Categories {
     //DeSci,
     //DeFi,
@@ -45,7 +44,6 @@ impl Default for Categories {
 
 #[derive(Eq, PartialEq,Encode,Decode,Clone, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadLayout,PackedLayout)]
 pub enum Chains {
     Polkadot,
     //Near,
@@ -64,9 +62,8 @@ impl Default for Chains {
 
 /// Application profile , this consist of `application_id`, `applicant_name`, `issuer_id / name`
 /// and `reference of the application profile file`
-#[derive(Encode,Decode,Clone, Debug)]
+#[derive(Clone,Encode, Decode, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadAllocate,SpreadLayout,PackedLayout)]
 pub struct Application{
     pub id: u32,
     pub team_name: String,
@@ -93,9 +90,8 @@ pub enum Error {
 
 
 ///  A grant applicant profile
-#[derive(Clone,Encode,Default, Decode, Debug)]
+#[derive(Clone,Encode, Decode, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadAllocate,PackedLayout,SpreadLayout)]
 pub struct ApplicantProfile {
     name: String,
     team_size: u8,
@@ -132,7 +128,6 @@ impl ApplicantProfile {
 /// The order is important in Contract Upgrades
 #[derive(Encode,Clone,Default, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadAllocate,PackedLayout,SpreadLayout)]
 pub struct IssuerProfile {
     name: String,
     id: u16,
@@ -175,7 +170,6 @@ impl IssuerProfile {
 /// The `key_pointer` is the key used in the key to `IssuerProfile` mapping
 #[derive(Clone,Encode,Hash, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
-#[derive(SpreadAllocate,PackedLayout,SpreadLayout)]
 pub struct KeyManagement{
     admin: AccountId,
     key_pointer: AccountId, // Account Id for now
@@ -228,7 +222,7 @@ impl KeyManagement {
 
 //-------- Extra traits for custom data structure ------------
 
-impl PackedAllocate for IssuerProfile{
+/*impl PackedAllocate for IssuerProfile{
     fn allocate_packed(&mut self, at: &Key) {
         PackedAllocate::allocate_packed(&mut self.categories, at);
         PackedAllocate::allocate_packed(&mut self.id, at);
@@ -307,7 +301,7 @@ impl PackedAllocate for KeyManagement {
     }
 }
 //---------------------------------------------------------------------//
-
+*/
 
 /// Result type for Create Profile
 pub type CreateResult<T> = Result<T,Error>;
@@ -387,6 +381,7 @@ pub trait CreateProfile {
 
     ) -> CreateResult<()>;
 
+
 }
 
 
@@ -423,18 +418,16 @@ pub trait OnchainGrant {
 
 #[ink::contract]
 mod ordum {
-    use ink_lang::trait_definition;
-    use ink_lang::utils::initialize_contract;
-    use ink_storage::Mapping;
+
+    use ink::trait_definition;
+    use ink::storage::Mapping;
     use pink_extension::{http_get, PinkEnvironment};
-    use ink_storage::traits::SpreadAllocate;
     use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
     /// Ordum Global State
     #[ink(storage)]
-    #[derive(SpreadAllocate)]
     pub struct OrdumState {
         issuer_profile: Mapping<AccountId,IssuerProfile>,
         list_issuer_profile: Vec<IssuerProfile>,
@@ -443,9 +436,10 @@ mod ordum {
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
-        queue_applications:Mapping<u16,Mapping<u32,Vec<Application>>>,
+        //queue_applications:Mapping<u16,Mapping<u32,u32>>,
         // Multi-Key Management
         manage_keys: Vec<KeyManagement>,
+
     }
 
 
@@ -483,7 +477,6 @@ mod ordum {
 
         #[ink(constructor)]
         pub fn initialize() -> Self{
-            initialize_contract(|state:&mut Self|{
                 let contract_id = Self::env().account_id();
                 let initializer_id = Self::env().caller();
                 let initial_keys = KeyManagement {
@@ -491,17 +484,37 @@ mod ordum {
                     key_pointer: contract_id,
                     allowed_keys: vec![contract_id,initializer_id],
                 };
+                let applicant_profile = ApplicantProfile{
+                    name: String::from("Ordum"),
+                    team_size: 0,
+                    account_id: contract_id,
+                    description: String::from("Pirates"),
+                    registered_time: 0,
+                    applications: None,
+                    categories: vec![],
+                };
 
-                state.issuer_profile.insert(contract_id,&IssuerProfile::default());
-                state.manage_keys = vec![initial_keys];
-                state.applicant_profile.insert(initializer_id,&ApplicantProfile::default());
-            })
+                let mut issuer = Mapping::default();
+                let mut applicant = Mapping::default();
+                let mut issuer_list = Vec::<IssuerProfile>::default();
+                let mut applicant_list = Vec::<ApplicantProfile>::default();
+
+
+                let _issuer_val_bytes = issuer.insert(contract_id,&IssuerProfile::default());
+                issuer_list.push(IssuerProfile::default());
+                let _applicant_val_bytes = applicant.insert(initializer_id,&applicant_profile);
+                applicant_list.push(applicant_profile);
+
+                Self {
+                    issuer_profile: issuer,
+                    list_issuer_profile: issuer_list,
+                    applicant_profile: applicant,
+                    list_applicant_profile: applicant_list,
+                    //queue_applications: Mapping::default(),
+                    manage_keys: vec![initial_keys],
+                }
         }
-        // Default constructor
-        #[ink(constructor)]
-        pub fn default() -> Self{
-            initialize_contract(|_| {})
-        }
+
 
         // Getters
         #[ink(message,selector=0xC0DE1002)]
@@ -537,6 +550,7 @@ mod ordum {
 
         }
 
+
     }
 
     impl CreateProfile for OrdumState {
@@ -571,7 +585,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
                         .map_err(|_|Error::UnexpectedError)?;
-                    self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
 
                     // Register Keys
@@ -594,7 +608,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
                         .map_err(|_|Error::UnexpectedError)?;
-                    self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
@@ -621,7 +635,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
                         .map_err(|_| Error::UnexpectedError)?;
-                    self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
+                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
@@ -642,7 +656,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
                         .map_err(|_| Error::UnexpectedError)?;
-                    self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
+                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
@@ -657,7 +671,6 @@ mod ordum {
 
 
         }
-
         #[ink(message, selector =0xC0DE0002)]
         fn create_issuer_profile(
             &mut self, name: String,
@@ -697,7 +710,7 @@ mod ordum {
                 wallet.allowed_keys.append(&mut allowed_accounts.clone());
 
                 // Registering to the storage
-                self.issuer_profile.insert(wallet.key_pointer,&profile);
+                let _issuer_val_bytes = self.issuer_profile.insert(wallet.key_pointer,&profile);
                 self.manage_keys.push(wallet);
                 self.list_issuer_profile.push(profile.clone());
 
@@ -711,6 +724,7 @@ mod ordum {
             }
 
         }
+
         #[ink(message, selector = 0xC0DE0003)]
         fn update_keys(&mut self, account: AccountId, action: KeyAction) -> CreateResult<()> {
             let caller = Self::env().caller();
@@ -732,7 +746,6 @@ mod ordum {
                 None => Err(Error::NotAuthorized)
             }
         }
-
         #[ink(message, payable, selector = 0xC0DE0004)]
         fn update_issuer_profile(
 
@@ -762,26 +775,28 @@ mod ordum {
                 if index == 1 && description.is_some(){
                     let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
                     profile.description = description.clone().ok_or(Error::UnexpectedError)?;
-                    self.issuer_profile.insert(key,&profile);
+                    let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
 
                 }else if index == 2 && categories.is_some() {
                     let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
                     profile.categories = categories.clone().ok_or(Error::UnexpectedError)?;
-                    self.issuer_profile.insert(key,&profile);
+                    let _issuer_val_bytes = self.issuer_profile.insert(key,&profile);
 
                 }else if index == 3 && chain.is_some(){
                     let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
                     profile.chain = chain.clone().ok_or(Error::UnexpectedError)?;
-                    self.issuer_profile.insert(key,&profile);
+                    let _issuer_val_byes = self.issuer_profile.insert(key,&profile);
 
                 }else if index == 4 && status.is_some() {
                     let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
                     profile.is_active = status.ok_or(Error::UnexpectedError)?;
-                    self.issuer_profile.insert(key,&profile);
+                    let _issuer_val_bytes = self.issuer_profile.insert(key,&profile);
                 }
             };
 
             Ok(())
         }
+
+
     }
 }
