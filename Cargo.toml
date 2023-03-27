@@ -1,0 +1,30 @@
+[package]
+name = "Ordum_Astar"
+version = "0.1.0"
+authors = ["[MrishoLukamba] <[MrishoLukamba@ordum.com]>"]
+edition = "2021"
+
+[dependencies]
+ink = { version = "4.0.1", default-features = false }
+ink_prelude = { version = "4.0.0", default-features = false }
+ink_types = { version ="0.0.1", default-features = false }
+hex = { version = "0.4", default-features = false }
+scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
+scale-info = { version = "2.3", default-features = false, features = ["derive"], optional = true }
+
+[dev-dependencies]
+ink_e2e = "4.0.1"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+    "hex/std"
+]
+ink-as-dependency = []
+e2e-tests = []
