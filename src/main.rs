@@ -26,12 +26,6 @@ async fn main() -> Result<(),Box<dyn std::error::Error>> {
     let alice = AccountKeyring::Alice.to_account_id();
 
     let dest = AccountKeyring::Bob.to_account_id();
-    let call = runtime::tx().balances().transfer(dest.into(),100_000);
-
-    // Referenda Origins
-    let origin = runtime::constants().referenda().tracks();
-    let origin_getter = api.constants().at(&origin)?;
-    let big_spender = &origin_getter.get(14).unwrap().1.name;
 
     // Preimage Lookup type
     let hash = H256::from(hex!("1d0d7261146a0a9d5b27fb110385e945fda74543b4cc4c509ca2c21e6df0eac6"));
@@ -57,7 +51,7 @@ async fn main() -> Result<(),Box<dyn std::error::Error>> {
     let referenda_call_type = runtime::tx().referenda().submit(ref_origin_caller,preimage,d_time);
 
     // Call submission
-    let tx_call = api.tx().sign_and_submit_then_watch_default(&referenda_call_type,&signer).await?;
+    //let tx_call = api.tx().sign_and_submit_then_watch_default(&referenda_call_type,&signer).await?;
 
 
     Ok(())
