@@ -1,0 +1,21 @@
+[package]
+name = "kusama-chop"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+frame-metadata = "15.1.0"
+frame-support = "21.0.0"
+hex = "0.4.3"
+hex-literal = "0.4.1"
+pallet-referenda = "21.0.0"
+parity-scale-codec = "3.4.0"
+sp-io = "22.0.0"
+sp-keyring = "23.0.0"
+subxt = "0.28.0"
+subxt-cli = "0.28.0"
+subxt-codegen = "0.28.0"
+syn = { version = "2.0.15", features =["full"] }
+tokio = { version = "1", features = ["full"] }
