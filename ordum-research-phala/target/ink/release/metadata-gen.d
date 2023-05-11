@@ -1,0 +1,1 @@
+/home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/target/ink/release/metadata-gen: /home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/src/lib.rs /tmp/cargo-contract_Gu6h6P/.ink/metadata_gen/main.rs

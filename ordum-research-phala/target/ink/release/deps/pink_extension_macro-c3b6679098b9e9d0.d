@@ -1,0 +1,8 @@
+/home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/target/ink/release/deps/libpink_extension_macro-c3b6679098b9e9d0.so: /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/lib.rs /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/chain_extension.rs /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/contract.rs /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/driver_system.rs
+
+/home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/target/ink/release/deps/pink_extension_macro-c3b6679098b9e9d0.d: /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/lib.rs /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/chain_extension.rs /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/contract.rs /home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/driver_system.rs
+
+/home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/lib.rs:
+/home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/chain_extension.rs:
+/home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/contract.rs:
+/home/mrisholukamba/.cargo/registry/src/github.com-1ecc6299db9ec823/pink-extension-macro-0.4.1/src/driver_system.rs:

@@ -515,6 +515,10 @@ mod ordum {
                 }
         }
 
+        // Remember Upgradability
+
+
+        // Account abstraction Research
 
         // Getters
         #[ink(message,selector=0xC0DE1002)]
@@ -548,6 +552,18 @@ mod ordum {
                 Err(Error::AccountDontExists)
             }
 
+        }
+
+        #[ink(message, selector = 0xC0DE1003)]
+        pub fn get_all_applicants(&self) -> CreateResult<Vec<ApplicantProfile>>{
+            // Thoughts on adding personalized response based on the caller id
+            return Ok(self.list_applicant_profile.clone())
+        }
+
+        #[ink(message, selector = 0xC0DE1004)]
+        pub fn get_all_issuers(&self) -> CreateResult<Vec<IssuerProfile>>{
+            // Thoughts on adding personalized response based on the caller id
+            return Ok(self.list_issuer_profile.clone())
         }
 
 

@@ -1,0 +1,1 @@
+/home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/target/ink/wasm32-unknown-unknown/release/ordum.wasm: /home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/src/lib.rs

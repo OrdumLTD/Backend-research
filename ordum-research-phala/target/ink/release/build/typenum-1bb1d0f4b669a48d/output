@@ -1,0 +1,3 @@
+cargo:rerun-if-changed=build/main.rs
+cargo:rustc-env=TYPENUM_BUILD_CONSTS=/home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/target/ink/release/build/typenum-1bb1d0f4b669a48d/out/consts.rs
+cargo:rustc-env=TYPENUM_BUILD_OP=/home/mrisholukamba/ORDUM/phala-ordum/Backend-research/ordum-research-phala/target/ink/release/build/typenum-1bb1d0f4b669a48d/out/op.rs
