@@ -1,1 +1,0 @@
-ink::ink_env::call::CallBuilder<DefaultEnvironment, ink::ink_env::call::utils::Set<Call<DefaultEnvironment>>, ink::ink_env::call::utils::Set<ExecutionInput<ArgumentList<ArgumentListEnd, ArgumentListEnd>>>, ink::ink_env::call::utils::Set<ReturnType<Result<&Vec<ApplicantProfile>, Error>>>>

@@ -88,6 +88,12 @@ pub enum Error {
     UnexpectedError,
 }
 
+/// Team Member Roles
+#[derive(Clone, Encode, Decode, Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
+pub enum MemberRole {
+    Admin
+}
 
 ///  A grant applicant profile
 #[derive(Clone,Encode, Decode, Debug)]
@@ -97,9 +103,13 @@ pub struct ApplicantProfile {
     team_size: u8,
     account_id: AccountId,
     description: String,
+    members: Option<Vec<(AccountId,MemberRole)>>,
+    ref_team: Option<u32>,
     registered_time: Timestamp,
     applications:Option<u8>,
     categories: Vec<Categories>
+    // To do  
+    // Team member and the roles
 }
 
 impl ApplicantProfile {
@@ -109,6 +119,7 @@ impl ApplicantProfile {
         account: AccountId,
         time: Timestamp,
         categories: Vec<Categories>,
+        members: Option<Vec<(AccountId,MemberRole)>>,
     ) -> CreateResult<Self> {
 
         Ok(Self {
@@ -116,6 +127,8 @@ impl ApplicantProfile {
             team_size,
             account_id: account,
             description,
+            members,
+            ref_team: None,
             registered_time: time,
             applications: None,
             categories,
@@ -136,6 +149,7 @@ pub struct IssuerProfile {
     registration_date: Timestamp,
     categories: Vec<Categories>,
     description: String,
+    mission: String,
     applications: Option<Vec<u16>>,
 }
 
@@ -146,8 +160,8 @@ impl IssuerProfile {
         chain: Chains,
         categories: Vec<Categories>,
         time: Timestamp,
-        description: String
-
+        description: String,
+        mission: String
     ) -> CreateResult<Self> {
         let id = (time % 999).try_into().map_err(|_|Error::UnexpectedError)?;
         Ok(Self{
@@ -158,6 +172,7 @@ impl IssuerProfile {
             registration_date: time,
             categories,
             description,
+            mission,
             applications: None,
         })
     }
@@ -327,7 +342,8 @@ pub trait CreateProfile {
         account: Option<AccountId>,
         team_size: u8, description: String,
         allowed_accounts: Option<Vec<AccountId>>,
-        categories: Vec<Categories>
+        categories: Vec<Categories>,
+        members: Option<Vec<(AccountId, MemberRole)>>
 
     ) -> CreateResult<()>;
 
@@ -348,6 +364,7 @@ pub trait CreateProfile {
         chain: Chains,
         categories: Vec<Categories>,
         description: String,
+        mission: String,
         allowed_accounts: Vec<AccountId>
 
     ) -> CreateResult<()>;
@@ -422,7 +439,7 @@ mod ordum {
     use ink::trait_definition;
     use ink::storage::Mapping;
     use pink_extension::{http_get, PinkEnvironment};
-    use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS};
+    use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
 
 
@@ -489,6 +506,8 @@ mod ordum {
                     team_size: 0,
                     account_id: contract_id,
                     description: String::from("Pirates"),
+                    members: None,
+                    ref_team:None,
                     registered_time: 0,
                     applications: None,
                     categories: vec![],
@@ -572,11 +591,14 @@ mod ordum {
     impl CreateProfile for OrdumState {
         #[ink(message,selector =0xC0DE0001)]
         fn create_applicant_profile(
+            
             &mut self, name: String,
-            account: Option<AccountId>, team_size: u8,
+            account: Option<AccountId>,
+            team_size: u8,
             description: String,
             allowed_accounts: Option<Vec<AccountId>>,
-            categories: Vec<Categories>
+            categories: Vec<Categories>,
+            members: Option<Vec<(AccountId, MemberRole)>>
 
         ) -> CreateResult<()> {
 
@@ -599,7 +621,7 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members)
                         .map_err(|_|Error::UnexpectedError)?;
                     let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -622,7 +644,7 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories)
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members)
                         .map_err(|_|Error::UnexpectedError)?;
                     let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -649,7 +671,7 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members)
                         .map_err(|_| Error::UnexpectedError)?;
                     let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -670,7 +692,7 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories)
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members)
                         .map_err(|_| Error::UnexpectedError)?;
                     let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -693,6 +715,7 @@ mod ordum {
             chain: Chains,
             categories: Vec<Categories>,
             description: String,
+            mission: String,
             allowed_accounts: Vec<AccountId>
         ) -> CreateResult<()> {
 
@@ -714,7 +737,7 @@ mod ordum {
                 // If not then create a new one
             }else {
                 let time = Self::env().block_timestamp();
-                let profile = IssuerProfile::new(name,chain,categories,time,description)
+                let profile = IssuerProfile::new(name,chain,categories,time,description,mission)
                     .map_err(|_|Error::UnexpectedError)?;
 
                 let mut wallet = KeyManagement {
