@@ -92,8 +92,23 @@ pub enum Error {
 #[derive(Clone, Encode, Decode, Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
 pub enum MemberRole {
-    Admin
+    Admin,
+    Regular
 }
+
+#[derive(Clone, Encode, Decode, Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
+pub enum UserRole {
+    Applicant,
+    Foundation
+}
+
+impl Default for UserRole{
+    fn default() -> Self {
+        UserRole::Foundation
+    }
+}
+
 
 ///  A grant applicant profile
 #[derive(Clone,Encode, Decode, Debug)]
@@ -104,12 +119,11 @@ pub struct ApplicantProfile {
     account_id: AccountId,
     description: String,
     members: Option<Vec<(AccountId,MemberRole)>>,
-    ref_team: Option<u32>,
+    ref_team: Option<u32>,// Team Id
     registered_time: Timestamp,
     applications:Option<u8>,
-    categories: Vec<Categories>
-    // To do  
-    // Team member and the roles
+    categories: Vec<Categories>,
+    role: UserRole 
 }
 
 impl ApplicantProfile {
@@ -120,6 +134,7 @@ impl ApplicantProfile {
         time: Timestamp,
         categories: Vec<Categories>,
         members: Option<Vec<(AccountId,MemberRole)>>,
+        role:UserRole
     ) -> CreateResult<Self> {
 
         Ok(Self {
@@ -132,6 +147,7 @@ impl ApplicantProfile {
             registered_time: time,
             applications: None,
             categories,
+            role
         })
     }
 }
@@ -150,7 +166,9 @@ pub struct IssuerProfile {
     categories: Vec<Categories>,
     description: String,
     mission: String,
+    members: Option<Vec<(AccountId,MemberRole)>>,
     applications: Option<Vec<u16>>,
+    role:UserRole
 }
 
 
@@ -161,7 +179,9 @@ impl IssuerProfile {
         categories: Vec<Categories>,
         time: Timestamp,
         description: String,
-        mission: String
+        mission: String,
+        members: Option<Vec<(AccountId,MemberRole)>>,
+        role:UserRole
     ) -> CreateResult<Self> {
         let id = (time % 999).try_into().map_err(|_|Error::UnexpectedError)?;
         Ok(Self{
@@ -173,7 +193,9 @@ impl IssuerProfile {
             categories,
             description,
             mission,
+            members,
             applications: None,
+            role
         })
     }
 
@@ -343,8 +365,8 @@ pub trait CreateProfile {
         team_size: u8, description: String,
         allowed_accounts: Option<Vec<AccountId>>,
         categories: Vec<Categories>,
-        members: Option<Vec<(AccountId, MemberRole)>>
-
+        members: Option<Vec<(AccountId, MemberRole)>>,
+        role:UserRole
     ) -> CreateResult<()>;
 
 
@@ -365,8 +387,9 @@ pub trait CreateProfile {
         categories: Vec<Categories>,
         description: String,
         mission: String,
-        allowed_accounts: Vec<AccountId>
-
+        members: Option<Vec<(AccountId,MemberRole)>>,
+        allowed_accounts: Vec<AccountId>,
+        role:UserRole
     ) -> CreateResult<()>;
 
 
@@ -430,6 +453,17 @@ pub trait OnchainGrant {
 
 }
 
+/// Experimental feature
+/// Trait definition for interacting with Astar contract via account abstraction
+/// All the methods are supposed to run on offchain enviroment
+#[ink::trait_definition]
+pub trait AstarInteractor {
+    /// Registering an account via password
+    #[ink(message, selector = 0xC0DE0009)]
+    fn register_account(&self, password: String) -> CreateResult<()>;
+    
+}
+
 
 // ----------CONTRACT IMPLEMENTATION--------------------------------------//
 
@@ -441,7 +475,7 @@ mod ordum {
     use pink_extension::{http_get, PinkEnvironment};
     use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
-
+    use crate::UserRole;
 
     /// Ordum Global State
     #[ink(storage)]
@@ -493,7 +527,7 @@ mod ordum {
     impl OrdumState {
 
         #[ink(constructor)]
-        pub fn initialize() -> Self{
+        pub fn new() -> Self{
                 let contract_id = Self::env().account_id();
                 let initializer_id = Self::env().caller();
                 let initial_keys = KeyManagement {
@@ -511,6 +545,7 @@ mod ordum {
                     registered_time: 0,
                     applications: None,
                     categories: vec![],
+                    role: crate::UserRole::Applicant
                 };
 
                 let mut issuer = Mapping::default();
@@ -598,8 +633,8 @@ mod ordum {
             description: String,
             allowed_accounts: Option<Vec<AccountId>>,
             categories: Vec<Categories>,
-            members: Option<Vec<(AccountId, MemberRole)>>
-
+            members: Option<Vec<(AccountId, MemberRole)>>,
+            role:UserRole
         ) -> CreateResult<()> {
 
             let applicant = Self::env().caller();
@@ -621,8 +656,9 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members)
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members,role)
                         .map_err(|_|Error::UnexpectedError)?;
+
                     let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
 
@@ -644,7 +680,7 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members)
+                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members,role)
                         .map_err(|_|Error::UnexpectedError)?;
                     let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -671,7 +707,7 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members)
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members,role)
                         .map_err(|_| Error::UnexpectedError)?;
                     let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -692,7 +728,7 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members)
+                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members,role)
                         .map_err(|_| Error::UnexpectedError)?;
                     let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -716,7 +752,9 @@ mod ordum {
             categories: Vec<Categories>,
             description: String,
             mission: String,
-            allowed_accounts: Vec<AccountId>
+            members: Option<Vec<(AccountId,MemberRole)>>,
+            allowed_accounts: Vec<AccountId>,
+            role:UserRole
         ) -> CreateResult<()> {
 
             let issuer_admin = Self::env().caller();
@@ -737,7 +775,7 @@ mod ordum {
                 // If not then create a new one
             }else {
                 let time = Self::env().block_timestamp();
-                let profile = IssuerProfile::new(name,chain,categories,time,description,mission)
+                let profile = IssuerProfile::new(name,chain,categories,time,description,mission,members,role)
                     .map_err(|_|Error::UnexpectedError)?;
 
                 let mut wallet = KeyManagement {
