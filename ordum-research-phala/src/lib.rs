@@ -46,6 +46,7 @@ impl Default for Categories {
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 pub enum Chains {
     Polkadot,
+    Kusama,
     //Near,
     OffChain,
     //Ethereum,
@@ -115,31 +116,29 @@ impl Default for UserRole{
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 pub struct ApplicantProfile {
     name: String,
-    team_size: u8,
     account_id: AccountId,
     description: String,
     members: Option<Vec<(AccountId,MemberRole)>>,
     ref_team: Option<u32>,// Team Id
     registered_time: Timestamp,
     applications:Option<u8>,
-    categories: Vec<Categories>,
+    categories: Option<Vec<Categories>>,
     role: UserRole 
 }
 
 impl ApplicantProfile {
     pub fn new(
-        name: String, team_size:u8,
+        name: String, 
         description: String,
         account: AccountId,
         time: Timestamp,
-        categories: Vec<Categories>,
+        categories: Option<Vec<Categories>>,
         members: Option<Vec<(AccountId,MemberRole)>>,
         role:UserRole
     ) -> CreateResult<Self> {
 
         Ok(Self {
             name,
-            team_size,
             account_id: account,
             description,
             members,
@@ -163,7 +162,7 @@ pub struct IssuerProfile {
     chain: Chains,
     is_active: bool,
     registration_date: Timestamp,
-    categories: Vec<Categories>,
+    categories: Option<Vec<Categories>>,
     description: String,
     mission: String,
     members: Option<Vec<(AccountId,MemberRole)>>,
@@ -176,7 +175,7 @@ impl IssuerProfile {
     pub fn new(
         name: String,
         chain: Chains,
-        categories: Vec<Categories>,
+        categories: Option<Vec<Categories>>,
         time: Timestamp,
         description: String,
         mission: String,
@@ -362,9 +361,9 @@ pub trait CreateProfile {
 
         &mut self, name: String,
         account: Option<AccountId>,
-        team_size: u8, description: String,
+        description: String,
         allowed_accounts: Option<Vec<AccountId>>,
-        categories: Vec<Categories>,
+        categories: Option<Vec<Categories>>,
         members: Option<Vec<(AccountId, MemberRole)>>,
         role:UserRole
     ) -> CreateResult<()>;
@@ -384,7 +383,7 @@ pub trait CreateProfile {
 
         &mut self, name: String,
         chain: Chains,
-        categories: Vec<Categories>,
+        categories: Option<Vec<Categories>>,
         description: String,
         mission: String,
         members: Option<Vec<(AccountId,MemberRole)>>,
@@ -480,7 +479,7 @@ mod ordum {
     /// Ordum Global State
     #[ink(storage)]
     pub struct OrdumState {
-        issuer_profile: Mapping<AccountId,IssuerProfile>,
+        issuer_profile: Mapping<AccountId,Option<IssuerProfile>>,
         list_issuer_profile: Vec<IssuerProfile>,
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
         list_applicant_profile: Vec<ApplicantProfile>,
@@ -537,31 +536,29 @@ mod ordum {
                 };
                 let applicant_profile = ApplicantProfile{
                     name: String::from("Ordum"),
-                    team_size: 0,
                     account_id: contract_id,
                     description: String::from("Pirates"),
                     members: None,
                     ref_team:None,
                     registered_time: 0,
                     applications: None,
-                    categories: vec![],
+                    categories: None,
                     role: crate::UserRole::Applicant
                 };
 
                 let mut issuer = Mapping::default();
                 let mut applicant = Mapping::default();
-                let mut issuer_list = Vec::<IssuerProfile>::default();
                 let mut applicant_list = Vec::<ApplicantProfile>::default();
 
 
-                let _issuer_val_bytes = issuer.insert(contract_id,&IssuerProfile::default());
-                issuer_list.push(IssuerProfile::default());
+                let _issuer_val_bytes = issuer.insert(contract_id,&None::<IssuerProfile>);
+        
                 let _applicant_val_bytes = applicant.insert(initializer_id,&applicant_profile);
                 applicant_list.push(applicant_profile);
 
                 Self {
                     issuer_profile: issuer,
-                    list_issuer_profile: issuer_list,
+                    list_issuer_profile: vec![],
                     applicant_profile: applicant,
                     list_applicant_profile: applicant_list,
                     //queue_applications: Mapping::default(),
@@ -576,7 +573,7 @@ mod ordum {
 
         // Getters
         #[ink(message,selector=0xC0DE1002)]
-        pub fn get_issuer_profile(&self) -> CreateResult<IssuerProfile>{
+        pub fn get_issuer_profile(&self) -> CreateResult<Option<IssuerProfile>>{
 
             let caller = Self::env().caller();
             // Check if the caller is authorized to retrieve Applicant profile
@@ -617,7 +614,9 @@ mod ordum {
         #[ink(message, selector = 0xC0DE1004)]
         pub fn get_all_issuers(&self) -> CreateResult<Vec<IssuerProfile>>{
             // Thoughts on adding personalized response based on the caller id
-            return Ok(self.list_issuer_profile.clone())
+            //Check if its there
+            return Ok(self.list_issuer_profile.clone());
+            
         }
 
 
@@ -629,10 +628,9 @@ mod ordum {
             
             &mut self, name: String,
             account: Option<AccountId>,
-            team_size: u8,
             description: String,
             allowed_accounts: Option<Vec<AccountId>>,
-            categories: Vec<Categories>,
+            categories: Option<Vec<Categories>>,
             members: Option<Vec<(AccountId, MemberRole)>>,
             role:UserRole
         ) -> CreateResult<()> {
@@ -656,7 +654,7 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members,role)
+                    let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,members,role)
                         .map_err(|_|Error::UnexpectedError)?;
 
                     let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
@@ -680,7 +678,7 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name,team_size,description,account_inner,time,categories,members,role)
+                    let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,members,role)
                         .map_err(|_|Error::UnexpectedError)?;
                     let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -707,7 +705,7 @@ mod ordum {
                     };
                     wallet.allowed_keys.append(&mut allowed_acc);
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members,role)
+                    let applicant_data = ApplicantProfile::new(name, description, applicant,time,categories, members,role)
                         .map_err(|_| Error::UnexpectedError)?;
                     let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -728,7 +726,7 @@ mod ordum {
                         allowed_keys: vec![applicant],
                     };
 
-                    let applicant_data = ApplicantProfile::new(name, team_size, description, applicant,time,categories, members,role)
+                    let applicant_data = ApplicantProfile::new(name, description, applicant,time,categories, members,role)
                         .map_err(|_| Error::UnexpectedError)?;
                     let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
                     self.list_applicant_profile.push(applicant_data.clone());
@@ -749,7 +747,7 @@ mod ordum {
         fn create_issuer_profile(
             &mut self, name: String,
             chain: Chains,
-            categories: Vec<Categories>,
+            categories: Option<Vec<Categories>>,
             description: String,
             mission: String,
             members: Option<Vec<(AccountId,MemberRole)>>,
@@ -787,7 +785,7 @@ mod ordum {
                 wallet.allowed_keys.append(&mut allowed_accounts.clone());
 
                 // Registering to the storage
-                let _issuer_val_bytes = self.issuer_profile.insert(wallet.key_pointer,&profile);
+                let _issuer_val_bytes = self.issuer_profile.insert(wallet.key_pointer,&Some(profile.clone()));
                 self.manage_keys.push(wallet);
                 self.list_issuer_profile.push(profile.clone());
 
@@ -850,24 +848,43 @@ mod ordum {
             for index in 1..=4 {
 
                 if index == 1 && description.is_some(){
-                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
-                    profile.description = description.clone().ok_or(Error::UnexpectedError)?;
-                    let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
+                    if let Some(profile) = self.issuer_profile.get(key){
+                        if let Some(mut inner_profile) = profile.clone() {
+
+                            inner_profile.description = description.clone().ok_or(Error::UnexpectedError)?;
+                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
+                        }
+                    }
+                    
 
                 }else if index == 2 && categories.is_some() {
-                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
-                    profile.categories = categories.clone().ok_or(Error::UnexpectedError)?;
-                    let _issuer_val_bytes = self.issuer_profile.insert(key,&profile);
+                    if let Some(profile) = self.issuer_profile.get(key){
+                        if let Some(mut inner_profile) = profile.clone() {
 
+                            inner_profile.categories = Some(categories.clone().ok_or(Error::UnexpectedError)?);
+                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
+                        }
+                    }
+                    
                 }else if index == 3 && chain.is_some(){
-                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
-                    profile.chain = chain.clone().ok_or(Error::UnexpectedError)?;
-                    let _issuer_val_byes = self.issuer_profile.insert(key,&profile);
+                    if let Some(profile) = self.issuer_profile.get(key){
+                        if let Some(mut inner_profile) = profile.clone() {
+
+                            inner_profile.chain = chain.clone().ok_or(Error::UnexpectedError)?;
+                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
+                        }
+                    }
+                    
 
                 }else if index == 4 && status.is_some() {
-                    let mut profile = self.issuer_profile.get(key).ok_or(Error::ProfileDontExists)?;
-                    profile.is_active = status.ok_or(Error::UnexpectedError)?;
-                    let _issuer_val_bytes = self.issuer_profile.insert(key,&profile);
+                    if let Some(profile) = self.issuer_profile.get(key){
+                        if let Some(mut inner_profile) = profile.clone() {
+
+                            inner_profile.is_active = status.ok_or(Error::UnexpectedError)?;
+                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
+                        }
+                    }
+                   
                 }
             };
 
