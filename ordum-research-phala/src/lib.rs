@@ -481,7 +481,7 @@ mod ordum {
     pub struct OrdumState {
         issuer_profile: Mapping<AccountId,Option<IssuerProfile>>,
         list_issuer_profile: Vec<IssuerProfile>,
-        applicant_profile: Mapping<AccountId,ApplicantProfile>,
+        applicant_profile: Mapping<AccountId,Option<ApplicantProfile>>,
         list_applicant_profile: Vec<ApplicantProfile>,
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
@@ -534,28 +534,13 @@ mod ordum {
                     key_pointer: contract_id,
                     allowed_keys: vec![contract_id,initializer_id],
                 };
-                let applicant_profile = ApplicantProfile{
-                    name: String::from("Ordum"),
-                    account_id: contract_id,
-                    description: String::from("Pirates"),
-                    members: None,
-                    ref_team:None,
-                    registered_time: 0,
-                    applications: None,
-                    categories: None,
-                    role: crate::UserRole::Applicant
-                };
-
+              
                 let mut issuer = Mapping::default();
-                let mut applicant = Mapping::default();
-                let mut applicant_list = Vec::<ApplicantProfile>::default();
-
+                let applicant = Mapping::default();
+                let applicant_list = Vec::<ApplicantProfile>::default();
 
                 let _issuer_val_bytes = issuer.insert(contract_id,&None::<IssuerProfile>);
         
-                let _applicant_val_bytes = applicant.insert(initializer_id,&applicant_profile);
-                applicant_list.push(applicant_profile);
-
                 Self {
                     issuer_profile: issuer,
                     list_issuer_profile: vec![],
@@ -589,7 +574,7 @@ mod ordum {
         }
 
         #[ink(message,selector=0xC0DE1001)]
-        pub fn get_applicant_profile(&self) -> CreateResult<ApplicantProfile>{
+        pub fn get_applicant_profile(&self) -> CreateResult<Option<ApplicantProfile>>{
 
             let caller = Self::env().caller();
             // Check if the caller is authorized to retrieve Applicant profile
@@ -600,7 +585,7 @@ mod ordum {
                     .ok_or(Error::UnexpectedError)?;
                 Ok(profile)
             }else{
-                Err(Error::AccountDontExists)
+                Ok(None)
             }
 
         }
@@ -657,7 +642,7 @@ mod ordum {
                     let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,members,role)
                         .map_err(|_|Error::UnexpectedError)?;
 
-                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&Some(applicant_data.clone()));
                     self.list_applicant_profile.push(applicant_data.clone());
 
                     // Register Keys
@@ -680,7 +665,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,members,role)
                         .map_err(|_|Error::UnexpectedError)?;
-                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&applicant_data);
+                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&Some(applicant_data.clone()));
                     self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
@@ -707,7 +692,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name, description, applicant,time,categories, members,role)
                         .map_err(|_| Error::UnexpectedError)?;
-                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
+                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &Some(applicant_data.clone()));
                     self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
@@ -728,7 +713,7 @@ mod ordum {
 
                     let applicant_data = ApplicantProfile::new(name, description, applicant,time,categories, members,role)
                         .map_err(|_| Error::UnexpectedError)?;
-                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &applicant_data);
+                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &Some(applicant_data.clone()));
                     self.list_applicant_profile.push(applicant_data.clone());
                     // Register Keys
                     self.manage_keys.push(wallet);
