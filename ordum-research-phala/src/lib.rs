@@ -527,19 +527,11 @@ mod ordum {
 
         #[ink(constructor)]
         pub fn new() -> Self{
-                let contract_id = Self::env().account_id();
-                let initializer_id = Self::env().caller();
-                let initial_keys = KeyManagement {
-                    admin: contract_id,
-                    key_pointer: contract_id,
-                    allowed_keys: vec![contract_id,initializer_id],
-                };
-              
-                let mut issuer = Mapping::default();
+                              
+                let issuer = Mapping::default();
                 let applicant = Mapping::default();
                 let applicant_list = Vec::<ApplicantProfile>::default();
 
-                let _issuer_val_bytes = issuer.insert(contract_id,&None::<IssuerProfile>);
         
                 Self {
                     issuer_profile: issuer,
@@ -547,7 +539,7 @@ mod ordum {
                     applicant_profile: applicant,
                     list_applicant_profile: applicant_list,
                     //queue_applications: Mapping::default(),
-                    manage_keys: vec![initial_keys],
+                    manage_keys: vec![],
                 }
         }
 
