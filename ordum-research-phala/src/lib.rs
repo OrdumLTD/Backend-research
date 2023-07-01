@@ -4,14 +4,14 @@
 
 
 use ink;
-use ink::primitives::Key;
+use ink::primitives::{Key, AccountId};
 use ink::storage::traits::StorageLayout;
 use scale::{Decode, Encode};
 use ink::prelude::{vec::Vec,vec,string::String};
 use ink::storage::Mapping;
 use core::hash::Hash;
 use ink_types::Timestamp;
-use pink_extension::AccountId;
+
 
 
 
@@ -469,9 +469,7 @@ pub trait AstarInteractor {
 #[ink::contract]
 mod ordum {
 
-    use ink::trait_definition;
     use ink::storage::Mapping;
-    use pink_extension::{http_get, PinkEnvironment};
     use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
     use crate::UserRole;
