@@ -1,6 +1,6 @@
 [package]
 name = "ordum"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["[MrishoLukamba@Ordum] <[ordum@protonmail.com]>"]
 edition = "2021"
 
@@ -15,9 +15,13 @@ scale-info = { version = "2", default-features = false, features = ["derive"], o
 #Open brush library
 #openbrush = { version = "2.2.0", default-features = false }
 pink-extension = { version = "0.4.1", default-features = false }
+# frame-support = { version = "21.0.0", default-features = false}
 
-[dev-dependencies]
-pink-extension-runtime = { version = "0.4.0", default-features = false }
+# [patch."https://github.com/paritytech/substrate.git"]
+# sp-io = { version = "4.0.0-dev"}
+
+# [dev-dependencies]
+# pink-extension-runtime = { version = "0.4.0", default-features = false }
 
 [lib]
 path = "src/lib.rs"
@@ -25,12 +29,5 @@ path = "src/lib.rs"
 
 [features]
 default = ["std"]
-std = [
-    "scale/std",
-    "scale-info/std",
-    "pink-extension/std",
-    "hex/std",
-    "ink_env/std"
-    #"openbrush/std"
-]
+std = ["scale/std", "scale-info/std", "pink-extension/std", "hex/std", "ink/std"]
 ink-as-dependency = []

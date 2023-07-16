@@ -1,16 +1,18 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), no_std,no_main)]
 
 //--------ORDUM FIRST ITERATION IMPLEMENTATION----------//
 
 
 use ink;
 use ink::primitives::{Key, AccountId};
-use ink::storage::traits::StorageLayout;
+use ink::storage::traits::{StorageLayout, Storable, StorableHint, StorageKey};
 use scale::{Decode, Encode};
-use ink::prelude::{vec::Vec,vec,string::String};
+use ink::prelude::{boxed::Box, vec::Vec,vec,string::String};
 use ink::storage::Mapping;
 use core::hash::Hash;
 use ink_types::Timestamp;
+
+
 
 
 
@@ -24,16 +26,20 @@ const MAX_KEYS:u8 = 3;
 #[derive(Eq,PartialEq, Encode,Decode,Clone,Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 pub enum Categories {
-    //DeSci,
-    //DeFi,
-    PublicGood,
-    //NFT,
-    //ProtocolResearch,
-    Infrastructure,
-    //DeCommerce,
-    //Governance,
-    //Miscellaneous,
-    MediaArt,
+   Defi,
+   Identity,
+   Privacy,
+   Infrastructure,
+   NetworkChanges,
+   Art,
+   Media,
+   Gaming,
+   Events,
+   Education,
+   NFTs,
+   Translation,
+   Governance,
+   PublicGood
 }
 
 impl Default for Categories {
@@ -89,18 +95,30 @@ pub enum Error {
     UnexpectedError,
 }
 
+/// Error types for Milestone Tracking
+#[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+pub enum MilestoneError {
+    NotAuthorized,
+    UnexpectedError,
+    StorageExceeded,
+    MilestoneNotFound
+}
+
+
+
 /// Team Member Roles
-#[derive(Clone, Encode, Decode, Debug)]
+#[derive(Clone, Encode, Decode, Debug,PartialEq)]
 #[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
 pub enum MemberRole {
     Admin,
     Regular
 }
 
-#[derive(Clone, Encode, Decode, Debug)]
+#[derive(Clone, Encode, Decode, Debug,PartialEq)]
 #[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
 pub enum UserRole {
-    Applicant,
+    Individual,
     Foundation
 }
 
@@ -118,11 +136,13 @@ pub struct ApplicantProfile {
     name: String,
     account_id: AccountId,
     description: String,
+    chain: Vec<Chains>,
     members: Option<Vec<(AccountId,MemberRole)>>,
-    ref_team: Option<u32>,// Team Id
+    pub ref_team: Vec<AccountId>,// Team Id / Team Account Id
     registered_time: Timestamp,
     applications:Option<u8>,
     categories: Option<Vec<Categories>>,
+    links:Option<Vec<String>>,
     role: UserRole 
 }
 
@@ -133,7 +153,9 @@ impl ApplicantProfile {
         account: AccountId,
         time: Timestamp,
         categories: Option<Vec<Categories>>,
+        chain: Vec<Chains>,
         members: Option<Vec<(AccountId,MemberRole)>>,
+        links: Option<Vec<String>>,
         role:UserRole
     ) -> CreateResult<Self> {
 
@@ -142,13 +164,23 @@ impl ApplicantProfile {
             account_id: account,
             description,
             members,
-            ref_team: None,
+            ref_team: vec![],
             registered_time: time,
             applications: None,
             categories,
+            chain,
+            links,
             role
         })
     }
+
+    pub fn update_ref_team(&mut self,team:AccountId) -> CreateResult<()>{
+        let prev_state = &mut self.ref_team;
+        prev_state.push(team);
+        self.ref_team = prev_state.to_vec();
+        Ok(())
+    }
+
 }
 
 
@@ -256,92 +288,176 @@ impl KeyManagement {
 }
 
 
-//-------- Extra traits for custom data structure ------------
-
-/*impl PackedAllocate for IssuerProfile{
-    fn allocate_packed(&mut self, at: &Key) {
-        PackedAllocate::allocate_packed(&mut self.categories, at);
-        PackedAllocate::allocate_packed(&mut self.id, at);
-        PackedAllocate::allocate_packed(&mut self.description, at);
-        PackedAllocate::allocate_packed(&mut self.chain, at);
-        PackedAllocate::allocate_packed(&mut self.applications, at);
-        PackedAllocate::allocate_packed(&mut self.is_active, at);
-        PackedAllocate::allocate_packed(&mut self.name, at);
-        PackedAllocate::allocate_packed(&mut self.registration_date, at);
-    }
+//----------------------Milestones Struct------------------------------------------------------
+#[derive(Encode,Clone,Default, Decode, Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
+pub struct EditedMile {
+    pub edited_index:u8,
+    pub main_index:u8,
+    data:String,
+    mem:u32 // Storing the byte memory of the stored file pointing to IPFS
 }
 
-impl SpreadAllocate for Categories {
-    fn allocate_spread(ptr: &mut KeyPtr) -> Self {
-        ptr.advance_by(<Self as SpreadLayout>::FOOTPRINT);
-        Categories::PublicGood
-    }
-}
-
-impl PackedAllocate for Categories {
-    fn allocate_packed(&mut self, at: &Key) {
-        if self == &Categories::PublicGood{
-            PackedAllocate::allocate_packed(&mut Categories::PublicGood,at);
-        } else if self == &Categories::MediaArt {
-            PackedAllocate::allocate_packed(&mut Categories::MediaArt,at);
-        } else if self == &Categories::Infrastructure {
-            PackedAllocate::allocate_packed(&mut Categories::Infrastructure,at);
+impl EditedMile {
+    pub fn new(edited_index:u8,main_index:u8,data:String,mem:u32) -> Self{
+        Self{
+            edited_index,
+            main_index,
+            data,
+            mem
         }
     }
 }
 
-impl PackedAllocate for Application {
-    fn allocate_packed(&mut self, at: &Key) {
-        PackedAllocate::allocate_packed(&mut self.id,at);
-        PackedAllocate::allocate_packed(&mut self.issuer_id, at);
-        PackedAllocate::allocate_packed(&mut self.team_name,at);
-        PackedAllocate::allocate_packed(&mut self.issuer_name,at);
-    }
+#[derive(Encode,Clone,Default, Decode, Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
+pub struct AddMilestone {
+    pub main_index:u8,
+    pub no_edits:u8,
+    data: String,
+    mem: u32
 }
 
-impl SpreadAllocate for Chains {
-    fn allocate_spread(ptr: &mut KeyPtr) -> Self {
-        ptr.advance_by(<Self as SpreadLayout>::FOOTPRINT);
-        Chains::Polkadot
+impl AddMilestone{
+    pub fn new(main_index:u8,no_edits:u8,data:String,mem:u32) -> Self{
+        Self{
+            main_index,
+            no_edits,
+            data,
+            mem,
+        }
     }
+
+    // pub fn pivot(&mut self,pivot_index:u8,pivot_reason:String){
+
+    // }
 }
 
-impl PackedAllocate for Chains {
-    fn allocate_packed(&mut self, at: &Key) {
-        if self == &Chains::Polkadot {
-            PackedAllocate::allocate_packed(&mut Chains::Polkadot, at);
-        }else if self == &Chains::OffChain {
-            PackedAllocate::allocate_packed(&mut Chains::OffChain,at);
+
+
+pub const MAX_MEM:u32 = 134_217_728; // 16.7 Mbs
+
+
+#[derive(Storable, StorableHint, StorageKey)]
+#[cfg_attr(
+    feature = "std",
+    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
+)]
+#[derive(Default, Debug)]
+pub struct Project{
+    id: u8,
+    pub edited: Mapping<u8,Vec<EditedMile>>,
+    pub main: Vec<AddMilestone>,
+    pub pivoted: Vec<AddMilestone>,
+    //Utils
+    pub pivot_reason: Option<Vec<String>>,
+    pub pivot_index: Option<Vec<u8>>,
+    pub total_mem: u32, // total memory used
+}
+
+impl Project {
+    pub fn new(id:u8,) -> Self {
+        Self{
+            id,
+            edited: Mapping::default(),
+            main: vec![],
+            pivoted: vec![],
+            pivot_reason: None,
+            pivot_index: None,
+            total_mem: 0
+        }
+    }
+
+    pub fn add_main(&mut self,mile:AddMilestone,mem:u32) -> Result<(),MilestoneError>{
+        // Check if still u have the memory bandwidth
+        let used_mem = self.total_mem.saturating_add(mem);
+        if used_mem < MAX_MEM {
+            return Err(MilestoneError::StorageExceeded)
+        }
+      
+
+        self.main.push(mile);
+        // Update the sorage
+        self.total_mem = self.total_mem.saturating_add(mem);
+        Ok(())
+    }
+
+    pub fn add_edit(&mut self, mile_no: u8, mile:EditedMile,mem:u32) -> Result<(),MilestoneError>{
+        // Check if still u have the memory bandwidth
+        let used_mem = self.total_mem.saturating_add(mem);
+        if used_mem < MAX_MEM {
+            return Err(MilestoneError::StorageExceeded)
+        }
+
+        if let Some(mut prev_data) = self.edited.get(mile_no -1){
+            prev_data.push(mile);
+            // Update the total storage
+            self.total_mem = self.total_mem.saturating_add(mem);
+            // Update the main milestone
+            if let Some(latest_main) = self.main.get_mut(mile_no as usize - 1){
+                latest_main.no_edits += 1; 
+            }else{
+                ()
+            }
+            Ok(())?;
+        }else{
+            Err(MilestoneError::MilestoneNotFound)?;
         };
-
+    Ok(())
     }
+
+    pub fn add_new_pivot(&mut self,mile_no:u8, mile:AddMilestone, reason:String, mem:u32) ->Result<(),MilestoneError>{
+        
+         // Check if still u have the memory bandwidth
+         let used_mem = self.total_mem.saturating_add(mem);
+         if used_mem < MAX_MEM {
+             return Err(MilestoneError::StorageExceeded)
+         }
+
+         // Check if there is a main milestone
+         if let Some(latest_main) = self.main.get_mut(mile_no as usize -1){
+            // Update the project on the pivot and the reason
+            self.pivot_index = Some(vec![mile_no]);
+            self.pivot_reason = Some(vec![reason]);
+
+            // Update the pivot list
+            self.pivoted.push(mile);
+            self.total_mem = self.total_mem.saturating_add(mem);
+            Ok(())?;
+         }else{
+            Err(MilestoneError::MilestoneNotFound)?;
+         }
+
+        Ok(())
+    }
+
+
+    pub fn add_pivot(&mut self,mile:AddMilestone,mem:u32) -> Result<(),MilestoneError>{
+        // Check if still u have the memory bandwidth
+        let used_mem = self.total_mem.saturating_add(mem);
+        if used_mem < MAX_MEM {
+            return Err(MilestoneError::StorageExceeded)
+        }
+      
+
+        self.pivoted.push(mile);
+        // Update the sorage
+        self.total_mem = self.total_mem.saturating_add(mem);
+        Ok(())
+    }
+
 }
 
-impl PackedAllocate for ApplicantProfile {
-    fn allocate_packed(&mut self, at: &Key) {
-        PackedAllocate::allocate_packed(&mut self.categories, at);
-        PackedAllocate::allocate_packed(&mut self.name, at);
-        PackedAllocate::allocate_packed(&mut self.applications, at);
-        PackedAllocate::allocate_packed(&mut self.description, at);
-        PackedAllocate::allocate_packed(&mut self.team_size, at);
-        PackedAllocate::allocate_packed(&mut self.registered_time, at);
-        PackedAllocate::allocate_packed(&mut self.account_id, at);
-    }
-}
 
-impl PackedAllocate for KeyManagement {
-    fn allocate_packed(&mut self, at: &Key) {
-        PackedAllocate::allocate_packed(&mut self.admin,at);
-        PackedAllocate::allocate_packed(&mut self.key_pointer, at);
-        PackedAllocate::allocate_packed(&mut self.allowed_keys, at);
-    }
-}
-//---------------------------------------------------------------------//
-*/
 
 /// Result type for Create Profile
 pub type CreateResult<T> = Result<T,Error>;
+/// Result type for Appliction
 pub type ApplicationResult<T> = Result<T,Error>;
+/// Result for milestone tracking
+pub type MilestoneResult<T> = Result<T,MilestoneError>;
+
+
 
 /// Trait definition for Creating a Profile
 /// This trait can be used both at individual, institutional applicants or grants issuer
@@ -362,9 +478,10 @@ pub trait CreateProfile {
         &mut self, name: String,
         account: Option<AccountId>,
         description: String,
-        allowed_accounts: Option<Vec<AccountId>>,
         categories: Option<Vec<Categories>>,
+        chain:Vec<Chains>,
         members: Option<Vec<(AccountId, MemberRole)>>,
+        links:Option<Vec<String>>,
         role:UserRole
     ) -> CreateResult<()>;
 
@@ -452,14 +569,39 @@ pub trait OnchainGrant {
 
 }
 
-/// Experimental feature
-/// Trait definition for interacting with Astar contract via account abstraction
-/// All the methods are supposed to run on offchain enviroment
+//---------------Milestone Tracking---------------------------------------------------//
+
+//------- Structure-------------//
+//
+//
+//                  - - - - - - - - - - - - - - - - - - - - -> M6_E1 --> M6_E2 --> M6_E3
+//             -                                          -
+//         -                                            -
+// Edited  ------------> M2_E1 --> M2_E2              -
+//                    -                            -
+//                  -                           -  
+// Main --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7
+//                                                     -
+//                                                        -
+// Pivoted --------------------------------------------------> P_M7 --> P_M8 --> P_M9
+
+/// Trait fot Milestone tracking functionalities
 #[ink::trait_definition]
-pub trait AstarInteractor {
-    /// Registering an account via password
+pub trait MilestoneTracker {
+    
     #[ink(message, selector = 0xC0DE0009)]
-    fn register_account(&self, password: String) -> CreateResult<()>;
+    fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>;
+
+    #[ink(message, selector = 0xC0DE0010)]
+    fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
+
+    #[ink(message, selector = 0xC0DE0011)]
+    fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
+
+    /// Flexible to fetch any stage of the milestone
+    /// Annotate which depth of the edits you want to receive, default set to all edits
+    #[ink(message, selector = 0xC0DE0012)]
+    fn fetch_milestone(&self) -> MilestoneResult<()>;
     
 }
 
@@ -470,9 +612,9 @@ pub trait AstarInteractor {
 mod ordum {
 
     use ink::storage::Mapping;
-    use crate::{Application, Categories, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole};
-    use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error};
-    use crate::UserRole;
+    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole};
+    use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker};
+
 
     /// Ordum Global State
     #[ink(storage)]
@@ -481,12 +623,13 @@ mod ordum {
         list_issuer_profile: Vec<IssuerProfile>,
         applicant_profile: Mapping<AccountId,Option<ApplicantProfile>>,
         list_applicant_profile: Vec<ApplicantProfile>,
+        manage_keys: Vec<KeyManagement>,
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
         //queue_applications:Mapping<u16,Mapping<u32,u32>>,
         // Multi-Key Management
-        manage_keys: Vec<KeyManagement>,
+        
 
     }
 
@@ -507,12 +650,12 @@ mod ordum {
             time:  Timestamp
         }
     /// Event emitted when Grant Issuer updates the profile
-    #[ink(event)]
-    pub struct IssuerUpdated {
-        #[ink(topic)]
-        name: String,
-        time: Timestamp
-    }
+        #[ink(event)]
+        pub struct IssuerUpdated {
+            #[ink(topic)]
+            name: String,
+            time: Timestamp
+        }
     /// Event emitted when Applicant updates the profile
         #[ink(event)]
         pub struct ApplicantUpdated {
@@ -564,7 +707,7 @@ mod ordum {
         }
 
         #[ink(message,selector=0xC0DE1001)]
-        pub fn get_applicant_profile(&self) -> CreateResult<Option<ApplicantProfile>>{
+        pub fn get_applicant_profile(&self) -> CreateResult<ApplicantProfile>{
 
             let caller = Self::env().caller();
             // Check if the caller is authorized to retrieve Applicant profile
@@ -573,9 +716,11 @@ mod ordum {
             }){
                 let profile = self.applicant_profile.get(wallet.key_pointer)
                     .ok_or(Error::UnexpectedError)?;
+
+                let profile = profile.ok_or_else(||Error::AccountDontExists)?;
                 Ok(profile)
             }else{
-                Ok(None)
+                Err(Error::NotAuthorized)
             }
 
         }
@@ -604,10 +749,12 @@ mod ordum {
             &mut self, name: String,
             account: Option<AccountId>,
             description: String,
-            allowed_accounts: Option<Vec<AccountId>>,
             categories: Option<Vec<Categories>>,
+            chain:Vec<Chains>,
             members: Option<Vec<(AccountId, MemberRole)>>,
+            links:Option<Vec<String>>,
             role:UserRole
+
         ) -> CreateResult<()> {
 
             let applicant = Self::env().caller();
@@ -620,104 +767,176 @@ mod ordum {
                     return Err(Error::AccountExists);
                 }
 
-                if let Some(mut allowed_acc) = allowed_accounts {
-                    // Create KeyManagement
-                    let mut wallet = KeyManagement {
-                        admin: applicant,
-                        key_pointer: account_inner,
-                        allowed_keys: vec![applicant],
-                    };
-                    wallet.allowed_keys.append(&mut allowed_acc);
+                let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,chain,members.clone(),links,role)
+                    .map_err(|_|Error::UnexpectedError)?;
 
-                    let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,members,role)
-                        .map_err(|_|Error::UnexpectedError)?;
+                // Check for member addition reference
+                if let Some(member) = members {
+                        // Update the Key Mangement
+                        let mut keys = vec![applicant];
 
-                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&Some(applicant_data.clone()));
-                    self.list_applicant_profile.push(applicant_data.clone());
+                        member.clone().iter().for_each(|mem|{
+                            if mem.1 == MemberRole::Admin{
+                                keys.push(mem.0);
+                            }
+                        });
 
-                    // Register Keys
-                    self.manage_keys.push(wallet);
-                    // Emits an event
-                    Self::env().emit_event(ApplicantAccountCreated{
-                        name:applicant_data.name,
-                        time,
-                    });
-                    Ok(())
+                        let wallet_data = KeyManagement {
+                            admin: applicant,
+                            key_pointer: account_inner,
+                            allowed_keys: keys,
+                        };
 
-                } else {
-                    // If no allowed-accounts provided
-                    // Create KeyManagement
-                    let wallet = KeyManagement {
-                        admin: applicant,
-                        key_pointer: account_inner,
-                        allowed_keys: vec![applicant],
-                    };
 
-                    let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,members,role)
-                        .map_err(|_|Error::UnexpectedError)?;
-                    let _applicant_val_bytes = self.applicant_profile.insert(&wallet.key_pointer,&Some(applicant_data.clone()));
-                    self.list_applicant_profile.push(applicant_data.clone());
-                    // Register Keys
-                    self.manage_keys.push(wallet);
-                    // Emits an event
-                    Self::env().emit_event(ApplicantAccountCreated{
-                        name:applicant_data.name,
-                        time,
-                    });
+                        // Check if the AccountId does have a profile
+                        member.clone().iter().for_each(|mem|{
+                            if self.applicant_profile.contains(mem.0) {
+                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap().unwrap();
+                                acc_data.update_ref_team(account_inner).unwrap();
 
-                    Ok(())
-                }
+
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                self.list_applicant_profile.push(applicant_data.clone());
+
+                                // Register Keys
+                                self.manage_keys.push(wallet_data.clone());
+                                // Emits an event
+                                Self::env().emit_event(ApplicantAccountCreated{
+                                    name:applicant_data.clone().name,
+                                    time,
+                                });
+
+                            }else{
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                self.list_applicant_profile.push(applicant_data.clone());
+
+                                // Register Keys
+                                self.manage_keys.push(wallet_data.clone());
+                                // Emits an event
+                                Self::env().emit_event(ApplicantAccountCreated{
+                                    name:applicant_data.clone().name,
+                                    time,
+                                });
+                                
+                            }
+                        });
+
+                        Ok(())
+                        
+                    }else{
+
+                        let wallet_data = KeyManagement {
+                            admin: applicant,
+                            key_pointer: account_inner,
+                            allowed_keys: vec![applicant],
+                        };
+
+                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                        self.list_applicant_profile.push(applicant_data.clone());
+
+                        // Register Keys
+                        self.manage_keys.push(wallet_data.clone());
+                        // Emits an event
+                        Self::env().emit_event(ApplicantAccountCreated{
+                            name:applicant_data.clone().name,
+                            time,
+                        });
+                        Ok(())
+
+                    }
+                
+
             } else {
                 // Check if account Exists
                 if self.applicant_profile.contains(applicant){
                    return  Err(Error::AccountExists)
                 }
                 // If no account provided, applicant will be used.
-                if let Some(mut allowed_acc) = allowed_accounts {
-                    let mut wallet = KeyManagement { admin: applicant,
-                        key_pointer: applicant,
-                        allowed_keys: vec![applicant],
-                    };
-                    wallet.allowed_keys.append(&mut allowed_acc);
+                let applicant_data = ApplicantProfile::new(name,description,applicant,time,categories,chain,members.clone(),links,role)
+                    .map_err(|_|Error::UnexpectedError)?;
 
-                    let applicant_data = ApplicantProfile::new(name, description, applicant,time,categories, members,role)
-                        .map_err(|_| Error::UnexpectedError)?;
-                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &Some(applicant_data.clone()));
-                    self.list_applicant_profile.push(applicant_data.clone());
-                    // Register Keys
-                    self.manage_keys.push(wallet);
-                    // Emits an event
-                    Self::env().emit_event(ApplicantAccountCreated{
-                        name:applicant_data.name,
-                        time,
-                    });
+                // Check for member addition reference
+                if let Some(member) = members {
+                        // Update the Key Mangement
+                        let mut keys = vec![applicant];
 
-                    Ok(())
+                        member.clone().iter().for_each(|mem|{
+                            if mem.1 == MemberRole::Admin{
+                                keys.push(mem.0);
+                            }
+                        });
 
-                }else {
-                    let wallet = KeyManagement {
-                        admin: applicant,
-                        key_pointer: applicant,
-                        allowed_keys: vec![applicant],
-                    };
+                        let wallet_data = KeyManagement {
+                            admin: applicant,
+                            key_pointer: applicant,
+                            allowed_keys: keys,
+                        };
 
-                    let applicant_data = ApplicantProfile::new(name, description, applicant,time,categories, members,role)
-                        .map_err(|_| Error::UnexpectedError)?;
-                    let _applicant_val_byte = self.applicant_profile.insert(&wallet.key_pointer, &Some(applicant_data.clone()));
-                    self.list_applicant_profile.push(applicant_data.clone());
-                    // Register Keys
-                    self.manage_keys.push(wallet);
-                    // Emits an event
-                    Self::env().emit_event(ApplicantAccountCreated{
-                        name:applicant_data.name,
-                        time,
-                    });
-                    Ok(())
-                }
+
+                        // Check if the AccountId does have a profile
+                        member.clone().iter().for_each(|mem|{
+                            if self.applicant_profile.contains(mem.0) {
+                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap().unwrap();
+                                acc_data.update_ref_team(applicant).unwrap();
+
+
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                self.list_applicant_profile.push(applicant_data.clone());
+
+                                // Register Keys
+                                self.manage_keys.push(wallet_data.clone());
+                                // Emits an event
+                                Self::env().emit_event(ApplicantAccountCreated{
+                                    name:applicant_data.clone().name,
+                                    time,
+                                });
+
+                            }else{
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                self.list_applicant_profile.push(applicant_data.clone());
+
+                                // Register Keys
+                                self.manage_keys.push(wallet_data.clone());
+                                // Emits an event
+                                Self::env().emit_event(ApplicantAccountCreated{
+                                    name:applicant_data.clone().name,
+                                    time,
+                                });
+                                
+                            }
+                        });
+
+                        Ok(())
+                    }else{
+
+                        let wallet_data = KeyManagement {
+                            admin: applicant,
+                            key_pointer: applicant,
+                            allowed_keys: vec![applicant],
+                        };
+
+                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                        self.list_applicant_profile.push(applicant_data.clone());
+
+                        // Register Keys
+                        self.manage_keys.push(wallet_data.clone());
+                        // Emits an event
+                        Self::env().emit_event(ApplicantAccountCreated{
+                            name:applicant_data.clone().name,
+                            time,
+                        });
+                        Ok(())
+
+                    }
+                
             }
 
 
         }
+
+
+
+
         #[ink(message, selector =0xC0DE0002)]
         fn create_issuer_profile(
             &mut self, name: String,
@@ -866,6 +1085,28 @@ mod ordum {
             Ok(())
         }
 
+    }
 
+    impl MilestoneTracker for OrdumState {
+       
+        #[ink(message, selector = 0xC0DE0009)]
+        fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>{
+            Ok(())
+        }
+    
+        #[ink(message, selector = 0xC0DE0010)]
+        fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
+            Ok(())
+        }
+    
+        #[ink(message, selector = 0xC0DE0011)]
+        fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
+            Ok(())
+        }
+    
+        #[ink(message, selector = 0xC0DE0012)]
+        fn fetch_milestone(&self) -> MilestoneResult<()>{
+            Ok(())
+        }
     }
 }
