@@ -186,53 +186,7 @@ impl ApplicantProfile {
 }
 
 
-/// A grant issuer profile
-/// The order is important in Contract Upgrades
-#[derive(Encode,Clone,Default, Decode, Debug)]
-#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
-pub struct IssuerProfile {
-    name: String,
-    id: u16,
-    chain: Chains,
-    is_active: bool,
-    registration_date: Timestamp,
-    categories: Option<Vec<Categories>>,
-    description: String,
-    mission: String,
-    members: Option<Vec<(AccountId,MemberRole)>>,
-    applications: Option<Vec<u16>>,
-    role:UserRole
-}
 
-
-impl IssuerProfile {
-    pub fn new(
-        name: String,
-        chain: Chains,
-        categories: Option<Vec<Categories>>,
-        time: Timestamp,
-        description: String,
-        mission: String,
-        members: Option<Vec<(AccountId,MemberRole)>>,
-        role:UserRole
-    ) -> CreateResult<Self> {
-        let id = (time % 999).try_into().map_err(|_|Error::UnexpectedError)?;
-        Ok(Self{
-            name,
-            id,
-            chain,
-            is_active: true,
-            registration_date: time,
-            categories,
-            description,
-            mission,
-            members,
-            applications: None,
-            role
-        })
-    }
-
-}
 
 /// Key management struct
 /// This will allow multiple members in certain organization to manage the account
@@ -487,27 +441,18 @@ pub trait CreateProfile {
     ) -> CreateResult<()>;
 
 
-    /// Creates Grant Issuer Profile, a function which takes on `name: String`,
-    /// `grant_levels`: This is an optional parameter whereby Issuer can choose different levels
-    /// of grants to provide based on amount, `chain type if the grants is an on-chain type and
-    /// None if its Off-chain`, `categories`: This specifies which categories this grant is on.
-    /// `description`: extra details of the grants.
-    ///
-    /// Allowed Accounts act as privileged members that can control the account `Multi-Key system`
-    /// In Phala context this function will be dispatched following block production
-    /// as it takes in `&mut self`.
-    #[ink(message, selector =0xC0DE0002)]
-    fn create_issuer_profile(
-
-        &mut self, name: String,
-        chain: Chains,
-        categories: Option<Vec<Categories>>,
-        description: String,
-        mission: String,
-        members: Option<Vec<(AccountId,MemberRole)>>,
-        allowed_accounts: Vec<AccountId>,
-        role:UserRole
-    ) -> CreateResult<()>;
+    // / Creates Grant Issuer Profile, a function which takes on `name: String`,
+    // / `grant_levels`: This is an optional parameter whereby Issuer can choose different levels
+    // / of grants to provide based on amount, `chain type if the grants is an on-chain type and
+    // / None if its Off-chain`, `categories`: This specifies which categories this grant is on.
+    // / `description`: extra details of the grants.
+    // /
+    // / Allowed Accounts act as privileged members that can control the account `Multi-Key system`
+    // / In Phala context this function will be dispatched following block production
+    // / as it takes in `&mut self`.
+    //--------------------------------------------------------------------------------------------
+    
+   
 
 
     /// Adding and removing allowed accounts by the `admin`
@@ -520,23 +465,6 @@ pub trait CreateProfile {
     #[ink(message, selector = 0xC0DE0003)]
     fn update_keys(&mut self,account: AccountId,action: KeyAction) -> CreateResult<()>;
 
-
-    /// Updating Grant Issuer with limitation of only `description`, `categories`,
-    /// `chain`, `status` which can be updated to the profile.
-    /// Any account member in `allowed accounts` have the privileges for updating.
-    /// Worst case scenario, time complexity will be `O(n)` with a best case of `O(1)`
-    ///
-    /// In Phala context this function will be dispatched following block production
-    /// as it takes in `&mut self`.
-    #[ink(message,payable,selector = 0xC0DE0004)]
-    fn update_issuer_profile(
-
-        &mut self,description:Option<String>,
-        categories: Option<Vec<Categories>>, // This replaces the existing categories
-        chain: Option<Chains>,
-        status: Option<bool>
-
-    ) -> CreateResult<()>;
 
 
 }
@@ -631,14 +559,12 @@ mod ordum {
 
     use ink::storage::Mapping;
     use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project};
-    use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker};
+    use super::{Vec,vec,CreateProfile,String,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker};
 
 
     /// Ordum Global State
     #[ink(storage)]
     pub struct OrdumState {
-        issuer_profile: Mapping<AccountId,Option<IssuerProfile>>,
-        list_issuer_profile: Vec<IssuerProfile>,
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
         list_applicant_profile: Vec<ApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
@@ -647,33 +573,17 @@ mod ordum {
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
         //queue_applications:Mapping<u16,Mapping<u32,u32>>,
-        // Multi-Key Management
         
 
     }
 
 
-    /// Events to be used on Notifications
-    /// Event emitted when new Grant Issuer is registered
-        #[ink(event)]
-        pub struct IssuerAccountCreated {
-            #[ink(topic)]
-            name: String,
-            time: Timestamp
-        }
     /// Event emitted when new Applicant is registered
         #[ink(event)]
         pub struct ApplicantAccountCreated {
             #[ink(topic)]
             name: String,
             time:  Timestamp
-        }
-    /// Event emitted when Grant Issuer updates the profile
-        #[ink(event)]
-        pub struct IssuerUpdated {
-            #[ink(topic)]
-            name: String,
-            time: Timestamp
         }
     /// Event emitted when Applicant updates the profile
         #[ink(event)]
@@ -689,8 +599,6 @@ mod ordum {
         pub fn new() -> Self{
                               
                 Self {
-                    issuer_profile: Mapping::default(),
-                    list_issuer_profile: vec![],
                     applicant_profile: Mapping::default(),
                     list_applicant_profile: vec![],
                     manage_keys: vec![],
@@ -703,22 +611,6 @@ mod ordum {
 
         // Account abstraction Research
 
-        // Getters
-        #[ink(message,selector=0xC0DE1002)]
-        pub fn get_issuer_profile(&self) -> CreateResult<Option<IssuerProfile>>{
-
-            let caller = Self::env().caller();
-            // Check if the caller is authorized to retrieve Applicant profile
-            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
-                key.allowed_keys.contains(&caller)
-            }){
-                let profile = self.issuer_profile.get(wallet.key_pointer)
-                    .ok_or(Error::UnexpectedError)?;
-                Ok(profile)
-            }else{
-                Err(Error::AccountDontExists)
-            }
-        }
 
         #[ink(message,selector=0xC0DE1001)]
         pub fn get_applicant_profile(&self) -> CreateResult<ApplicantProfile>{
@@ -742,14 +634,6 @@ mod ordum {
         pub fn get_all_applicants(&self) -> CreateResult<Vec<ApplicantProfile>>{
             // Thoughts on adding personalized response based on the caller id
             return Ok(self.list_applicant_profile.clone())
-        }
-
-        #[ink(message, selector = 0xC0DE1004)]
-        pub fn get_all_issuers(&self) -> CreateResult<Vec<IssuerProfile>>{
-            // Thoughts on adding personalized response based on the caller id
-            //Check if its there
-            return Ok(self.list_issuer_profile.clone());
-            
         }
 
 
@@ -950,64 +834,6 @@ mod ordum {
 
 
 
-
-        #[ink(message, selector =0xC0DE0002)]
-        fn create_issuer_profile(
-            &mut self, name: String,
-            chain: Chains,
-            categories: Option<Vec<Categories>>,
-            description: String,
-            mission: String,
-            members: Option<Vec<(AccountId,MemberRole)>>,
-            allowed_accounts: Vec<AccountId>,
-            role:UserRole
-        ) -> CreateResult<()> {
-
-            let issuer_admin = Self::env().caller();
-            // Check if account is registered
-            if self.issuer_profile.contains(issuer_admin){
-                return Err(Error::AccountExists)
-            }
-            // Check if the keys are less that MAX_KEYS
-            if allowed_accounts.len() as u8 >= MAX_KEYS {
-                return Err(Error::MaxKeysExceeded)
-            }
-
-            // Checking if the admin-account is already registered
-            if let Some(_key) =  self.manage_keys.iter()
-                .find(|&k| k.admin == issuer_admin){
-                return Err(Error::AccountExists)?;
-
-                // If not then create a new one
-            }else {
-                let time = Self::env().block_timestamp();
-                let profile = IssuerProfile::new(name,chain,categories,time,description,mission,members,role)
-                    .map_err(|_|Error::UnexpectedError)?;
-
-                let mut wallet = KeyManagement {
-                    admin: issuer_admin,
-                    key_pointer: issuer_admin,
-                    allowed_keys: vec![issuer_admin]
-                };
-
-                wallet.allowed_keys.append(&mut allowed_accounts.clone());
-
-                // Registering to the storage
-                let _issuer_val_bytes = self.issuer_profile.insert(wallet.key_pointer,&Some(profile.clone()));
-                self.manage_keys.push(wallet);
-                self.list_issuer_profile.push(profile.clone());
-
-                // Emit an event
-                Self::env().emit_event(IssuerAccountCreated {
-                    name: profile.clone().name,
-                    time,
-                });
-
-                Ok(())
-            }
-
-        }
-
         #[ink(message, selector = 0xC0DE0003)]
         fn update_keys(&mut self, account: AccountId, action: KeyAction) -> CreateResult<()> {
             let caller = Self::env().caller();
@@ -1029,77 +855,10 @@ mod ordum {
                 None => Err(Error::NotAuthorized)
             }
         }
-        #[ink(message, payable, selector = 0xC0DE0004)]
-        fn update_issuer_profile(
-
-            &mut self, description: Option<String>,
-            categories: Option<Vec<Categories>>,
-            chain: Option<Chains>,
-            status: Option<bool>
-
-        ) -> CreateResult<()> {
-            // Authorization logic
-            let caller = Self::env().caller();
-            // Checking if caller is in allowed_keys and then returning the key_pointer
-            let key = self.manage_keys.clone().into_iter().find_map(|wallet| {
-                if wallet.allowed_keys.contains(&caller) {
-                    Some(wallet.key_pointer)
-                } else {
-                    None
-                }
-            });
-
-            // Return error if the key is not available
-            let key = key.ok_or(Error::NotAuthorized)?;
-
-           // If the key is present
-            for index in 1..=4 {
-
-                if index == 1 && description.is_some(){
-                    if let Some(profile) = self.issuer_profile.get(key){
-                        if let Some(mut inner_profile) = profile.clone() {
-
-                            inner_profile.description = description.clone().ok_or(Error::UnexpectedError)?;
-                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
-                        }
-                    }
-                    
-
-                }else if index == 2 && categories.is_some() {
-                    if let Some(profile) = self.issuer_profile.get(key){
-                        if let Some(mut inner_profile) = profile.clone() {
-
-                            inner_profile.categories = Some(categories.clone().ok_or(Error::UnexpectedError)?);
-                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
-                        }
-                    }
-                    
-                }else if index == 3 && chain.is_some(){
-                    if let Some(profile) = self.issuer_profile.get(key){
-                        if let Some(mut inner_profile) = profile.clone() {
-
-                            inner_profile.chain = chain.clone().ok_or(Error::UnexpectedError)?;
-                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
-                        }
-                    }
-                    
-
-                }else if index == 4 && status.is_some() {
-                    if let Some(profile) = self.issuer_profile.get(key){
-                        if let Some(mut inner_profile) = profile.clone() {
-
-                            inner_profile.is_active = status.ok_or(Error::UnexpectedError)?;
-                            let _issuer_val_bytes  = self.issuer_profile.insert(key,&profile);
-                        }
-                    }
-                   
-                }
-            };
-
-            Ok(())
-        }
-
+       
     }
+
+
 
     impl MilestoneTracker for OrdumState {
        
@@ -1107,7 +866,7 @@ mod ordum {
         fn add_milestone(&mut self,project_id:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
             let caller = Self::env().caller();
-            // Check if the caller has a profil account
+            // Check if the caller has a profile account
             if let Some(wallet) = self.manage_keys.iter().find(|&key|{
                 key.allowed_keys.contains(&caller)
             }){
@@ -1140,11 +899,40 @@ mod ordum {
     
 
         #[ink(message, selector = 0xC0DE0010)]
-        fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
+        fn edit_milestone(&mut self,project_id:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
             let caller = Self::env().caller();
+
+             // Check if the caller has a profile account
+             if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+                let _applicant = self.applicant_profile.get(wallet.key_pointer).unwrap();
+
+                 // Check if there id a registered project
+                 if let Some(projects) = self.proposal_milestones.get(wallet.key_pointer){
+                    let mut current_project = projects[project_id as usize -1].clone();
+                    
+                    // Check if there are milestones
+                   if current_project.main.len() == 0{
+                        Err(MilestoneError::MilestoneNotFound)?
+                   }
+                   // get the latest no of edits in the specified milestone
+                   let specified_mile = current_project.main.get(mile_no as usize -1).ok_or_else(|| MilestoneError::MilestoneNotFound)?;
+        
+                   // Build the edit milestone object
+                   let edited_milestone = EditedMile::new(specified_mile.no_edits + 1,mile_no,file,mem);
+                   // Store it
+                   current_project.add_edit(mile_no, edited_milestone, mem)?;
+                   Ok(())? 
+                }else{
+                    Err(MilestoneError::ProjectNotFound)?
+                }
+            }            
+
             Ok(())
         }
+    
     
         #[ink(message, selector = 0xC0DE0011)]
         fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
