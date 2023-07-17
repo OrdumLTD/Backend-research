@@ -17,6 +17,7 @@ use ink_types::Timestamp;
 
 
 
+
 /// Constants
 const MAX_KEYS:u8 = 3;
 
@@ -338,15 +339,12 @@ impl AddMilestone{
 pub const MAX_MEM:u32 = 134_217_728; // 16.7 Mbs
 
 
-#[derive(Storable, StorableHint, StorageKey)]
-#[cfg_attr(
-    feature = "std",
-    derive(scale_info::TypeInfo, ink::storage::traits::StorageLayout)
-)]
-#[derive(Default, Debug)]
+
+#[derive(Encode,Clone,Default, Decode,Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
 pub struct Project{
     id: u8,
-    pub edited: Mapping<u8,Vec<EditedMile>>,
+    pub edited: Vec<Vec<EditedMile>>, // index == main milestone, value == Vec<EditedMilestonesPerMilestone>
     pub main: Vec<AddMilestone>,
     pub pivoted: Vec<AddMilestone>,
     //Utils
@@ -355,11 +353,13 @@ pub struct Project{
     pub total_mem: u32, // total memory used
 }
 
+// Implement Debug Trait manually for Project
+
 impl Project {
-    pub fn new(id:u8,) -> Self {
+    pub fn new(id:u8) -> Self {
         Self{
             id,
-            edited: Mapping::default(),
+            edited: vec![],
             main: vec![],
             pivoted: vec![],
             pivot_reason: None,
@@ -375,12 +375,12 @@ impl Project {
             return Err(MilestoneError::StorageExceeded)
         }
       
-
         self.main.push(mile);
         // Update the sorage
         self.total_mem = self.total_mem.saturating_add(mem);
         Ok(())
     }
+
 
     pub fn add_edit(&mut self, mile_no: u8, mile:EditedMile,mem:u32) -> Result<(),MilestoneError>{
         // Check if still u have the memory bandwidth
@@ -389,22 +389,22 @@ impl Project {
             return Err(MilestoneError::StorageExceeded)
         }
 
-        if let Some(mut prev_data) = self.edited.get(mile_no -1){
-            prev_data.push(mile);
-            // Update the total storage
-            self.total_mem = self.total_mem.saturating_add(mem);
-            // Update the main milestone
-            if let Some(latest_main) = self.main.get_mut(mile_no as usize - 1){
-                latest_main.no_edits += 1; 
-            }else{
-                ()
-            }
-            Ok(())?;
+        // Check if the main milestone is there
+        if let Some(latest_main) = self.main.get_mut(mile_no as usize - 1){
+            // Update the edited milestines list
+            let mut main_edited = self.edited[mile_no as usize -1].clone();
+            main_edited.push(mile);
+
+            self.edited.insert(mile_no as usize -1, main_edited);
+            Ok(())?
+
         }else{
-            Err(MilestoneError::MilestoneNotFound)?;
-        };
-    Ok(())
+            Err(MilestoneError::MilestoneNotFound)?
+        }
+       
+        Ok(())
     }
+
 
     pub fn add_new_pivot(&mut self,mile_no:u8, mile:AddMilestone, reason:String, mem:u32) ->Result<(),MilestoneError>{
         
@@ -606,13 +606,30 @@ pub trait MilestoneTracker {
 }
 
 
+/// Trait fot Proposal application
+#[ink::trait_definition]
+pub trait Proposer {
+    
+    #[ink(message, selector = 0xC0DE0009)]
+    fn add_proposal(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>;
+
+    #[ink(message, selector = 0xC0DE0010)]
+    fn edit_proposal(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
+
+    #[ink(message, selector = 0xC0DE0012)]
+    fn fetch_proposal(&self) -> MilestoneResult<()>;
+    
+}
+
+
+
 // ----------CONTRACT IMPLEMENTATION--------------------------------------//
 
 #[ink::contract]
 mod ordum {
 
     use ink::storage::Mapping;
-    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole};
+    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project};
     use super::{Vec,vec,CreateProfile,String, IssuerProfile,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker};
 
 
@@ -624,6 +641,7 @@ mod ordum {
         applicant_profile: Mapping<AccountId,Option<ApplicantProfile>>,
         list_applicant_profile: Vec<ApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
+        proposal_milestones: Mapping<AccountId,Vec<Project>>
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
@@ -669,18 +687,13 @@ mod ordum {
         #[ink(constructor)]
         pub fn new() -> Self{
                               
-                let issuer = Mapping::default();
-                let applicant = Mapping::default();
-                let applicant_list = Vec::<ApplicantProfile>::default();
-
-        
                 Self {
-                    issuer_profile: issuer,
+                    issuer_profile: Mapping::default(),
                     list_issuer_profile: vec![],
-                    applicant_profile: applicant,
-                    list_applicant_profile: applicant_list,
-                    //queue_applications: Mapping::default(),
+                    applicant_profile: Mapping::default(),
+                    list_applicant_profile: vec![],
                     manage_keys: vec![],
+                    proposal_milestones: Mapping::default()
                 }
         }
 
@@ -1091,16 +1104,23 @@ mod ordum {
        
         #[ink(message, selector = 0xC0DE0009)]
         fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>{
+
+            let caller = Self::env().caller();
+            // Check if the caller has a profil account
             Ok(())
         }
     
         #[ink(message, selector = 0xC0DE0010)]
         fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
+
+            let caller = Self::env().caller();
             Ok(())
         }
     
         #[ink(message, selector = 0xC0DE0011)]
         fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
+
+            let caller = Self::env().caller();
             Ok(())
         }
     
