@@ -103,7 +103,8 @@ pub enum MilestoneError {
     NotAuthorized,
     UnexpectedError,
     StorageExceeded,
-    MilestoneNotFound
+    MilestoneNotFound,
+    ProjectNotFound
 }
 
 
@@ -590,7 +591,7 @@ pub trait OnchainGrant {
 pub trait MilestoneTracker {
     
     #[ink(message, selector = 0xC0DE0009)]
-    fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>;
+    fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> MilestoneResult<()>;
 
     #[ink(message, selector = 0xC0DE0010)]
     fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
@@ -638,7 +639,7 @@ mod ordum {
     pub struct OrdumState {
         issuer_profile: Mapping<AccountId,Option<IssuerProfile>>,
         list_issuer_profile: Vec<IssuerProfile>,
-        applicant_profile: Mapping<AccountId,Option<ApplicantProfile>>,
+        applicant_profile: Mapping<AccountId,ApplicantProfile>,
         list_applicant_profile: Vec<ApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
         proposal_milestones: Mapping<AccountId,Vec<Project>>
@@ -730,7 +731,6 @@ mod ordum {
                 let profile = self.applicant_profile.get(wallet.key_pointer)
                     .ok_or(Error::UnexpectedError)?;
 
-                let profile = profile.ok_or_else(||Error::AccountDontExists)?;
                 Ok(profile)
             }else{
                 Err(Error::NotAuthorized)
@@ -775,6 +775,7 @@ mod ordum {
 
             // Check if account is provided or else use applicant account
             if let Some(account_inner) = account {
+                // Check using wallet key pointer ?????????
                 // Check if account exists
                 if self.applicant_profile.contains(account_inner){
                     return Err(Error::AccountExists);
@@ -804,11 +805,11 @@ mod ordum {
                         // Check if the AccountId does have a profile
                         member.clone().iter().for_each(|mem|{
                             if self.applicant_profile.contains(mem.0) {
-                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap().unwrap();
+                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap();
                                 acc_data.update_ref_team(account_inner).unwrap();
 
 
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
                                 self.list_applicant_profile.push(applicant_data.clone());
 
                                 // Register Keys
@@ -820,7 +821,7 @@ mod ordum {
                                 });
 
                             }else{
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
                                 self.list_applicant_profile.push(applicant_data.clone());
 
                                 // Register Keys
@@ -844,7 +845,7 @@ mod ordum {
                             allowed_keys: vec![applicant],
                         };
 
-                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
                         self.list_applicant_profile.push(applicant_data.clone());
 
                         // Register Keys
@@ -889,11 +890,11 @@ mod ordum {
                         // Check if the AccountId does have a profile
                         member.clone().iter().for_each(|mem|{
                             if self.applicant_profile.contains(mem.0) {
-                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap().unwrap();
+                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap();
                                 acc_data.update_ref_team(applicant).unwrap();
 
 
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
                                 self.list_applicant_profile.push(applicant_data.clone());
 
                                 // Register Keys
@@ -905,7 +906,7 @@ mod ordum {
                                 });
 
                             }else{
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
                                 self.list_applicant_profile.push(applicant_data.clone());
 
                                 // Register Keys
@@ -928,7 +929,7 @@ mod ordum {
                             allowed_keys: vec![applicant],
                         };
 
-                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&Some(applicant_data.clone()));
+                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
                         self.list_applicant_profile.push(applicant_data.clone());
 
                         // Register Keys
@@ -1103,13 +1104,41 @@ mod ordum {
     impl MilestoneTracker for OrdumState {
        
         #[ink(message, selector = 0xC0DE0009)]
-        fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>{
+        fn add_milestone(&mut self,project_id:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
             let caller = Self::env().caller();
             // Check if the caller has a profil account
+            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+                let _applicant = self.applicant_profile.get(wallet.key_pointer).unwrap();
+                // Check if there id a registered project
+                if let Some(projects) = self.proposal_milestones.get(wallet.key_pointer){
+                    let mut current_project = projects[project_id as usize -1].clone();
+                    
+                    // Check if there are milestones
+                    if let Some(mile) = current_project.main.last(){
+                        // Build a Milestone
+                        let current_main_index = current_project.main.len() as u8;
+                        
+                        let milestone = AddMilestone::new(current_main_index +1, mile.no_edits, file, mem);
+                        current_project.add_main(milestone, mem)?
+
+                    }else{
+
+                        let milestone = AddMilestone::new(1, 0, file, mem);
+                        current_project.add_main(milestone, mem)?
+                    }
+                   Ok(())? 
+                }else{
+                    Err(MilestoneError::ProjectNotFound)?
+                }
+            }
             Ok(())
         }
     
+    
+
         #[ink(message, selector = 0xC0DE0010)]
         fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
