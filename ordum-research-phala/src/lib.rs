@@ -3,7 +3,7 @@
 //--------ORDUM FIRST ITERATION IMPLEMENTATION----------//
 
 
-use ink;
+use ink::{self, storage_item};
 use ink::primitives::{Key, AccountId};
 use ink::storage::traits::{StorageLayout, Storable, StorableHint, StorageKey};
 use scale::{Decode, Encode};
@@ -129,6 +129,7 @@ impl Default for UserRole{
         UserRole::Foundation
     }
 }
+
 
 
 ///  A grant applicant profile
@@ -284,9 +285,6 @@ impl AddMilestone{
         }
     }
 
-    // pub fn pivot(&mut self,pivot_index:u8,pivot_reason:String){
-
-    // }
 }
 
 
@@ -297,11 +295,24 @@ pub const MAX_MEM:u32 = 134_217_728; // 16.7 Mbs
 
 #[derive(Encode,Clone,Default, Decode,Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
+pub struct FetchedMilestone{
+    pub id:u8,
+    pub edited_per_mile: Option<Vec<EditedMile>>,
+    pub all_edits: Option<Vec<(u8,Vec<EditedMile>)>>,
+    pub main: Option<Vec<AddMilestone>>,
+    pub pivoted: Option<Vec<AddMilestone>>,
+}
+
+
+
+
+#[derive(Encode,Clone,Default, Decode,Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
 pub struct Project{
     id: u8,
-    pub edited: Vec<Vec<EditedMile>>, // index == main milestone, value == Vec<EditedMilestonesPerMilestone>
+    pub edited: Vec<(u8,Vec<EditedMile>)>, // (index == main milestone, value == Vec<EditedMilestonesPerMilestone>)
     pub main: Vec<AddMilestone>,
-    pub pivoted: Vec<AddMilestone>,
+    pub pivoted: Vec<Vec<AddMilestone>>,
     //Utils
     pub pivot_reason: Option<Vec<String>>,
     pub pivot_index: Option<Vec<u8>>,
@@ -347,57 +358,23 @@ impl Project {
         // Check if the main milestone is there
         if let Some(latest_main) = self.main.get_mut(mile_no as usize - 1){
             // Update the edited milestines list
-            let mut main_edited = self.edited[mile_no as usize -1].clone();
-            main_edited.push(mile);
+            // -- check if there are edits in place associated with the milestone
+            self.edited.iter_mut().for_each(|v|{
+                // There exists edits for the milestone
+                if v.0 == mile_no {
+                    v.1.push(mile.clone());
+                }else{
+                    ()
+                }
+            });
+            self.edited.push((mile_no,vec![mile]));
 
-            self.edited.insert(mile_no as usize -1, main_edited);
             Ok(())?
 
         }else{
             Err(MilestoneError::MilestoneNotFound)?
         }
        
-        Ok(())
-    }
-
-
-    pub fn add_new_pivot(&mut self,mile_no:u8, mile:AddMilestone, reason:String, mem:u32) ->Result<(),MilestoneError>{
-        
-         // Check if still u have the memory bandwidth
-         let used_mem = self.total_mem.saturating_add(mem);
-         if used_mem < MAX_MEM {
-             return Err(MilestoneError::StorageExceeded)
-         }
-
-         // Check if there is a main milestone
-         if let Some(latest_main) = self.main.get_mut(mile_no as usize -1){
-            // Update the project on the pivot and the reason
-            self.pivot_index = Some(vec![mile_no]);
-            self.pivot_reason = Some(vec![reason]);
-
-            // Update the pivot list
-            self.pivoted.push(mile);
-            self.total_mem = self.total_mem.saturating_add(mem);
-            Ok(())?;
-         }else{
-            Err(MilestoneError::MilestoneNotFound)?;
-         }
-
-        Ok(())
-    }
-
-
-    pub fn add_pivot(&mut self,mile:AddMilestone,mem:u32) -> Result<(),MilestoneError>{
-        // Check if still u have the memory bandwidth
-        let used_mem = self.total_mem.saturating_add(mem);
-        if used_mem < MAX_MEM {
-            return Err(MilestoneError::StorageExceeded)
-        }
-      
-
-        self.pivoted.push(mile);
-        // Update the sorage
-        self.total_mem = self.total_mem.saturating_add(mem);
         Ok(())
     }
 
@@ -530,7 +507,7 @@ pub trait MilestoneTracker {
     /// Flexible to fetch any stage of the milestone
     /// Annotate which depth of the edits you want to receive, default set to all edits
     #[ink(message, selector = 0xC0DE0012)]
-    fn fetch_milestone(&self) -> MilestoneResult<()>;
+    fn fetch_milestone(&self,project_id:u8,mile_no:Option<u8>) -> MilestoneResult<FetchedMilestone>;
     
 }
 
@@ -558,7 +535,7 @@ pub trait Proposer {
 mod ordum {
 
     use ink::storage::Mapping;
-    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project};
+    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project, FetchedMilestone};
     use super::{Vec,vec,CreateProfile,String,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker};
 
 
@@ -568,7 +545,7 @@ mod ordum {
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
         list_applicant_profile: Vec<ApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
-        proposal_milestones: Mapping<AccountId,Vec<Project>>
+        proposal: Mapping<AccountId,Vec<Project>>
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
@@ -602,7 +579,7 @@ mod ordum {
                     applicant_profile: Mapping::default(),
                     list_applicant_profile: vec![],
                     manage_keys: vec![],
-                    proposal_milestones: Mapping::default()
+                    proposal: Mapping::default()
                 }
         }
 
@@ -871,8 +848,9 @@ mod ordum {
                 key.allowed_keys.contains(&caller)
             }){
                 let _applicant = self.applicant_profile.get(wallet.key_pointer).unwrap();
+                
                 // Check if there id a registered project
-                if let Some(projects) = self.proposal_milestones.get(wallet.key_pointer){
+                if let Some(projects) = self.proposal.get(wallet.key_pointer){
                     let mut current_project = projects[project_id as usize -1].clone();
                     
                     // Check if there are milestones
@@ -910,7 +888,7 @@ mod ordum {
                 let _applicant = self.applicant_profile.get(wallet.key_pointer).unwrap();
 
                  // Check if there id a registered project
-                 if let Some(projects) = self.proposal_milestones.get(wallet.key_pointer){
+                 if let Some(projects) = self.proposal.get(wallet.key_pointer){
                     let mut current_project = projects[project_id as usize -1].clone();
                     
                     // Check if there are milestones
@@ -933,7 +911,7 @@ mod ordum {
             Ok(())
         }
     
-    
+
         #[ink(message, selector = 0xC0DE0011)]
         fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
@@ -941,9 +919,83 @@ mod ordum {
             Ok(())
         }
     
+
         #[ink(message, selector = 0xC0DE0012)]
-        fn fetch_milestone(&self) -> MilestoneResult<()>{
-            Ok(())
+        fn fetch_milestone(&self,project_id:u8,mile_no:Option<u8>) -> MilestoneResult<FetchedMilestone>{
+
+            let caller = Self::env().caller();
+
+            // FetchMilestone Object
+            let mut ResultMilestone = FetchedMilestone::default();
+
+             // Check if the caller has a profile account
+             if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+
+                
+                // Check if the projects are there
+                if let Some(projects) = self.proposal.get(wallet.key_pointer){
+                    // Check if the specific project is there
+                    if let Some(project) = projects.get(project_id as usize - 1){
+
+                        // Check if the milestone is there
+                        if project.main.len() == 0 {
+                            Err(MilestoneError::MilestoneNotFound)?
+                        }
+
+                        // Check if specific milestone is given
+                        if let Some(m_no) = mile_no{
+                            // Fetch the milestone in the main and the edits
+                            if let Some(mile) = project.main.get(m_no as usize -1){
+
+                                // Fetch the edits associated with the milestone
+                                let edit = project.edited.iter().find(|&v| v.0 == m_no);
+                                if edit.is_some(){
+                                    ResultMilestone.main = Some(vec![mile.clone()]); 
+                                    ResultMilestone.edited_per_mile = Some(edit.ok_or_else(|| MilestoneError::UnexpectedError)?.1.clone());
+                                }
+                                // If there are no edits
+                                ResultMilestone.main = Some(vec![mile.clone()]); 
+
+                            }else{
+                                Err(MilestoneError::MilestoneNotFound)?
+                            }  
+
+                        }else{
+                            // Construct a fetchedMilestone object to fetch whole tree of milestone nodes
+                            ResultMilestone.main = Some(project.main.clone());
+                            // Fetch all the edits per milestons
+                            // -- check in the edited section if there is a main_index value and push it
+
+                            //NOTE: We can optimize here as for now the algorithm is searching the whole edited vector and it doest need to; 0(N^N)
+                            let mut edits_value:Vec<(u8,Vec<EditedMile>)> = Vec::new();
+
+                            project.main.iter().for_each(|m|{
+                                project.edited.iter().for_each(|edit|{
+                                   if edit.0 == m.main_index{
+                                        edits_value.push(edit.clone())
+                                   }
+                                })
+                            });
+                            // Check if the edits_value contain any value if not the leave the ResultMilestone as it is;
+                            if edits_value.len() != 0{
+                                ResultMilestone.all_edits = Some(edits_value);
+                            }
+                        }
+
+                    }else{
+                        Err(MilestoneError::ProjectNotFound)?
+                    }     
+                    
+                }else{
+                    Err(MilestoneError::ProjectNotFound)?
+                }
+            }else{
+                Err(MilestoneError::NotAuthorized)?
+            }
+            Ok(ResultMilestone)
+                  
         }
     }
 }
