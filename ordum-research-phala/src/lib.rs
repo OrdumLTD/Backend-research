@@ -305,11 +305,19 @@ pub struct FetchedMilestone{
 
 
 
+#[derive(Encode,Clone,Default, Decode,Debug)]
+#[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
+pub struct InnerProject {
+    pub chain: Chains,
+    pub file: String,
+    pub referenda_no: Option<u32>
+}
 
 #[derive(Encode,Clone,Default, Decode,Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
 pub struct Project{
     id: u8,
+    pub data: InnerProject,
     pub edited: Vec<(u8,Vec<EditedMile>)>, // (index == main milestone, value == Vec<EditedMilestonesPerMilestone>)
     pub main: Vec<AddMilestone>,
     pub pivoted: Vec<Vec<AddMilestone>>,
@@ -322,17 +330,7 @@ pub struct Project{
 // Implement Debug Trait manually for Project
 
 impl Project {
-    pub fn new(id:u8) -> Self {
-        Self{
-            id,
-            edited: vec![],
-            main: vec![],
-            pivoted: vec![],
-            pivot_reason: None,
-            pivot_index: None,
-            total_mem: 0
-        }
-    }
+    
 
     pub fn add_main(&mut self,mile:AddMilestone,mem:u32) -> Result<(),MilestoneError>{
         // Check if still u have the memory bandwidth
@@ -516,14 +514,12 @@ pub trait MilestoneTracker {
 #[ink::trait_definition]
 pub trait Proposer {
     
-    #[ink(message, selector = 0xC0DE0009)]
-    fn add_proposal(&mut self,project:u8,file:String,mem:u32) -> CreateResult<()>;
+    #[ink(message, selector = 0xC0DE0013)]
+    fn add_proposal(&mut self,chain:Chains,ref_no:Option<u32>,file:String,mem:u32) -> MilestoneResult<()>;
 
-    #[ink(message, selector = 0xC0DE0010)]
-    fn edit_proposal(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
 
-    #[ink(message, selector = 0xC0DE0012)]
-    fn fetch_proposal(&self) -> MilestoneResult<()>;
+    #[ink(message, selector = 0xC0DE0014)]
+    fn fetch_proposal(&self,proposal_id:u8) -> MilestoneResult<Project>;
     
 }
 
@@ -535,8 +531,8 @@ pub trait Proposer {
 mod ordum {
 
     use ink::storage::Mapping;
-    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project, FetchedMilestone};
-    use super::{Vec,vec,CreateProfile,String,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker};
+    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project, FetchedMilestone,Proposer};
+    use super::{Vec,vec,CreateProfile,String,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker,InnerProject};
 
 
     /// Ordum Global State
@@ -833,6 +829,102 @@ mod ordum {
             }
         }
        
+    }
+
+
+
+    impl Proposer for OrdumState {
+
+        #[ink(message, selector = 0xC0DE0013)]
+        fn add_proposal(&mut self,chain:Chains,ref_no:Option<u32>,file:String,mem:u32) -> MilestoneResult<()>{
+
+            let caller = Self::env().caller();
+            // Check if the caller has a profile account
+            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+
+                // Check if there is existing Projects
+                if let Some(mut projects) = self.proposal.get(wallet.key_pointer){
+
+                    let no_projects = projects.len() as u8;
+                    // Build the Project Object and InnerProject
+                    let inner_project = InnerProject {
+                        chain,
+                        file,
+                        referenda_no:ref_no
+                    };
+
+                    let project = Project {
+                        id: no_projects.saturating_add(1),
+                        data: inner_project,
+                        edited: vec![],
+                        main: vec![],
+                        pivoted: vec![],
+                        pivot_reason: None,
+                        pivot_index: None,
+                        total_mem: mem
+                    };
+
+                    projects.push(project);
+                    
+                    
+                }else{
+                    
+                    let inner_project = InnerProject {
+                        chain,
+                        file,
+                        referenda_no:ref_no
+                    };
+
+                    let project = Project {
+                        id: 1,
+                        data: inner_project,
+                        edited: vec![],
+                        main: vec![],
+                        pivoted: vec![],
+                        pivot_reason: None,
+                        pivot_index: None,
+                        total_mem: mem
+                    };
+
+                    self.proposal.insert(wallet.key_pointer,&vec![project]);
+                }
+
+            }else{
+                Err(MilestoneError::NotAuthorized)?
+            }
+            Ok(())
+        }
+
+
+        #[ink(message, selector = 0xC0DE0014)]
+        fn fetch_proposal(&self,proposal_id:u8) -> MilestoneResult<Project>{
+
+            let caller = Self::env().caller();
+            // Check if the caller has a profile account
+            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+
+                let projects = self.proposal.get(wallet.key_pointer).ok_or_else(||MilestoneError::ProjectNotFound)?;
+                if projects.len() != 0{
+
+                    if let Some(project) = projects.get(proposal_id as usize - 1){
+                        Ok(project.clone())
+                    }else{
+                        Err(MilestoneError::NotAuthorized)
+                    }
+
+                }else{
+                    Err(MilestoneError::ProjectNotFound)
+                }
+
+
+            }else{
+                Err(MilestoneError::NotAuthorized)
+            }
+        }
     }
 
 
