@@ -1,10 +1,10 @@
 {
   "source": {
-    "hash": "0x1ba6e4f64a73d0143208eb5a10756e028520ef393291dfa7095b4455d57f841b",
+    "hash": "0xa88679f5175aabebd68a261f3308b49f9eb4c2e802d6294011a4eaf59034160b",
     "language": "ink! 4.2.1",
     "compiler": "rustc 1.69.0",
     "build_info": {
-      "build_mode": "Release",
+      "build_mode": "Debug",
       "cargo_contract_version": "3.0.1",
       "rust_toolchain": "stable-aarch64-apple-darwin",
       "wasm_opt_settings": {

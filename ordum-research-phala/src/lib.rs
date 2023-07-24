@@ -289,7 +289,7 @@ impl AddMilestone{
 
 
 
-pub const MAX_MEM:u32 = 134_217_728; // 16.7 Mbs
+pub const MAX_MEM:u32 = 41_943_040; // 5Mbs
 
 
 
@@ -919,7 +919,6 @@ mod ordum {
                 }else{
                     Err(MilestoneError::ProjectNotFound)
                 }
-
 
             }else{
                 Err(MilestoneError::NotAuthorized)
