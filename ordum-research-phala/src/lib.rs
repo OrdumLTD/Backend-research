@@ -12,7 +12,16 @@ use ink::storage::Mapping;
 use core::hash::Hash;
 use ink_types::Timestamp;
 
+//------- The contracts has 5 parts --------------------------------//
 
+
+//1. Team Accounts & Profile Management
+//2. Key Managements for agile profiles ( Team as Daos)
+//3. Project and Milestone Tracking
+//4. Token and User Auth for Offchain Db
+//5. Contract Upgradability
+
+//------------------------------------------------------------------//
 
 
 
@@ -539,7 +548,6 @@ mod ordum {
     #[ink(storage)]
     pub struct OrdumState {
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
-        list_applicant_profile: Vec<ApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
         proposal: Mapping<AccountId,Vec<Project>>
         // Mapping issuer_id to a mapping of  application number to application profile
@@ -573,16 +581,30 @@ mod ordum {
                               
                 Self {
                     applicant_profile: Mapping::default(),
-                    list_applicant_profile: vec![],
                     manage_keys: vec![],
                     proposal: Mapping::default()
                 }
         }
 
         // Remember Upgradability
-
+        /// Modifies the code which is used to execute calls to this contract address (`AccountId`).
+        ///
+        /// We use this to upgrade the contract logic. We don't do any authorization here, any caller
+        /// can execute this method. In a production contract you would do some authorization here.
+        #[ink(message)]
+        pub fn set_code(&mut self, code_hash: [u8; 32]) {
+            ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
+                panic!(
+                    "Failed to `set_code_hash` to {:?} due to {:?}",
+                    code_hash, err
+                )
+            });
+            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
+        }
 
         // Account abstraction Research
+        // -- Lite implementation of token abstraction , this will be part of ANTA
+                
 
 
         #[ink(message,selector=0xC0DE1001)]
@@ -603,13 +625,7 @@ mod ordum {
 
         }
 
-        #[ink(message, selector = 0xC0DE1003)]
-        pub fn get_all_applicants(&self) -> CreateResult<Vec<ApplicantProfile>>{
-            // Thoughts on adding personalized response based on the caller id
-            return Ok(self.list_applicant_profile.clone())
-        }
-
-
+      
     }
 
     impl CreateProfile for OrdumState {
@@ -667,7 +683,7 @@ mod ordum {
 
 
                                 let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
-                                self.list_applicant_profile.push(applicant_data.clone());
+                                
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -679,7 +695,7 @@ mod ordum {
 
                             }else{
                                 let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
-                                self.list_applicant_profile.push(applicant_data.clone());
+                               
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -703,7 +719,7 @@ mod ordum {
                         };
 
                         let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
-                        self.list_applicant_profile.push(applicant_data.clone());
+                        
 
                         // Register Keys
                         self.manage_keys.push(wallet_data.clone());
@@ -752,7 +768,7 @@ mod ordum {
 
 
                                 let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
-                                self.list_applicant_profile.push(applicant_data.clone());
+                                
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -764,7 +780,7 @@ mod ordum {
 
                             }else{
                                 let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
-                                self.list_applicant_profile.push(applicant_data.clone());
+                                
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -787,7 +803,7 @@ mod ordum {
                         };
 
                         let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
-                        self.list_applicant_profile.push(applicant_data.clone());
+                       
 
                         // Register Keys
                         self.manage_keys.push(wallet_data.clone());
