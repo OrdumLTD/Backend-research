@@ -3,12 +3,12 @@
 //--------ORDUM FIRST ITERATION IMPLEMENTATION----------//
 
 
-use ink::{self, storage_item};
-use ink::primitives::{Key, AccountId};
-use ink::storage::traits::{StorageLayout, Storable, StorableHint, StorageKey};
+use ink::{self};
+use ink::primitives::{AccountId};
+use ink::storage::traits::{StorageLayout};
 use scale::{Decode, Encode};
-use ink::prelude::{boxed::Box, vec::Vec,vec,string::String};
-use ink::storage::Mapping;
+use ink::prelude::{vec::Vec,vec,string::String};
+
 use core::hash::Hash;
 use ink_types::Timestamp;
 
@@ -35,6 +35,7 @@ const MAX_KEYS:u8 = 3;
 
 #[derive(Eq,PartialEq, Encode,Decode,Clone,Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(Default)]
 pub enum Categories {
    Defi,
    Identity,
@@ -49,18 +50,17 @@ pub enum Categories {
    NFTs,
    Translation,
    Governance,
+   #[default]
    PublicGood
 }
 
-impl Default for Categories {
-    fn default() -> Self {
-       Categories::PublicGood
-    }
-}
+
 
 #[derive(Eq, PartialEq,Encode,Decode,Clone, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+#[derive(Default)]
 pub enum Chains {
+    #[default]
     Polkadot,
     Kusama,
     //Near,
@@ -69,11 +69,7 @@ pub enum Chains {
     //Cardano
 }
 
-impl Default for Chains {
-    fn default() -> Self {
-        Chains::Polkadot
-    }
-}
+
 // --------------------------------------------------------------------//
 
 
@@ -128,16 +124,14 @@ pub enum MemberRole {
 
 #[derive(Clone, Encode, Decode, Debug,PartialEq)]
 #[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
+#[derive(Default)]
 pub enum UserRole {
     Individual,
+    #[default]
     Foundation
 }
 
-impl Default for UserRole{
-    fn default() -> Self {
-        UserRole::Foundation
-    }
-}
+
 
 
 
@@ -363,7 +357,7 @@ impl Project {
         }
 
         // Check if the main milestone is there
-        if let Some(latest_main) = self.main.get_mut(mile_no as usize - 1){
+        if let Some(_latest_main) = self.main.get_mut(mile_no as usize - 1){
             // Update the edited milestines list
             // -- check if there are edits in place associated with the milestone
             self.edited.iter_mut().for_each(|v|{
@@ -371,7 +365,7 @@ impl Project {
                 if v.0 == mile_no {
                     v.1.push(mile.clone());
                 }else{
-                    ()
+                    
                 }
             });
             self.edited.push((mile_no,vec![mile]));
@@ -533,6 +527,21 @@ pub trait Proposer {
 }
 
 
+// Offchain DB Auth Trait
+#[ink::trait_definition]
+pub trait OffchainDbAuth {
+
+    #[ink(message, selector = 0xC0DE0015)]
+    fn get_random(&self) -> CreateResult<Vec<u8>>;
+
+    #[ink(message, selector= 0xC0DE0016)]
+    fn set_passcode(&mut self,rand:Vec<u8>) -> CreateResult<()>;
+
+    #[ink(message, selector= 0xC0DE0017)]
+    fn get_passcode(&self) -> CreateResult<String>;
+
+}
+
 
 // ----------CONTRACT IMPLEMENTATION--------------------------------------//
 
@@ -540,8 +549,20 @@ pub trait Proposer {
 mod ordum {
 
     use ink::storage::Mapping;
-    use crate::{Categories,AddMilestone,EditedMile, Chains, CreateResult, KeyAction, KeyManagement, MAX_KEYS, MemberRole,UserRole, Project, FetchedMilestone,Proposer};
-    use super::{Vec,vec,CreateProfile,String,ApplicantProfile, Error,MilestoneError,MilestoneResult,MilestoneTracker,InnerProject};
+    use pink_extension as pink;
+    use ink_env::hash::{CryptoHash,Blake2x128};
+    use scale::{Encode,Decode};
+    use hex;
+
+    use crate::{Categories,AddMilestone,EditedMile,
+        Chains, CreateResult, 
+        KeyAction, KeyManagement, MemberRole,UserRole, 
+        Project, FetchedMilestone,Proposer,OffchainDbAuth
+    };
+    use super::{Vec,vec,CreateProfile,String,
+        ApplicantProfile,
+        Error,MilestoneError,MilestoneResult,
+        MilestoneTracker,InnerProject};
 
 
     /// Ordum Global State
@@ -549,7 +570,8 @@ mod ordum {
     pub struct OrdumState {
         applicant_profile: Mapping<AccountId,ApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
-        proposal: Mapping<AccountId,Vec<Project>>
+        proposal: Mapping<AccountId,Vec<Project>>,
+        db_auth: Mapping<AccountId,Vec<u8>>
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
@@ -573,6 +595,13 @@ mod ordum {
             name: String,
             time: Timestamp
         }
+    
+    /// Event for setting passcode
+        #[ink(event)]
+        pub struct PasscodeSet {
+            #[ink(topic)]
+            account: AccountId
+        }
 
     impl OrdumState {
 
@@ -582,7 +611,8 @@ mod ordum {
                 Self {
                     applicant_profile: Mapping::default(),
                     manage_keys: vec![],
-                    proposal: Mapping::default()
+                    proposal: Mapping::default(),
+                    db_auth: Mapping::default()
                 }
         }
 
@@ -602,10 +632,7 @@ mod ordum {
             ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
         }
 
-        // Account abstraction Research
-        // -- Lite implementation of token abstraction , this will be part of ANTA
-                
-
+       
 
         #[ink(message,selector=0xC0DE1001)]
         pub fn get_applicant_profile(&self) -> CreateResult<ApplicantProfile>{
@@ -662,7 +689,7 @@ mod ordum {
                         // Update the Key Mangement
                         let mut keys = vec![applicant];
 
-                        member.clone().iter().for_each(|mem|{
+                        member.iter().for_each(|mem|{
                             if mem.1 == MemberRole::Admin{
                                 keys.push(mem.0);
                             }
@@ -676,13 +703,13 @@ mod ordum {
 
 
                         // Check if the AccountId does have a profile
-                        member.clone().iter().for_each(|mem|{
+                        member.iter().for_each(|mem|{
                             if self.applicant_profile.contains(mem.0) {
                                 let mut acc_data = self.applicant_profile.get(mem.0).unwrap();
                                 acc_data.update_ref_team(account_inner).unwrap();
 
 
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
                                 
 
                                 // Register Keys
@@ -694,7 +721,7 @@ mod ordum {
                                 });
 
                             }else{
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
                                
 
                                 // Register Keys
@@ -718,7 +745,7 @@ mod ordum {
                             allowed_keys: vec![applicant],
                         };
 
-                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
+                        let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
                         
 
                         // Register Keys
@@ -747,7 +774,7 @@ mod ordum {
                         // Update the Key Mangement
                         let mut keys = vec![applicant];
 
-                        member.clone().iter().for_each(|mem|{
+                        member.iter().for_each(|mem|{
                             if mem.1 == MemberRole::Admin{
                                 keys.push(mem.0);
                             }
@@ -761,13 +788,13 @@ mod ordum {
 
 
                         // Check if the AccountId does have a profile
-                        member.clone().iter().for_each(|mem|{
+                        member.iter().for_each(|mem|{
                             if self.applicant_profile.contains(mem.0) {
                                 let mut acc_data = self.applicant_profile.get(mem.0).unwrap();
                                 acc_data.update_ref_team(applicant).unwrap();
 
 
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
                                 
 
                                 // Register Keys
@@ -779,7 +806,7 @@ mod ordum {
                                 });
 
                             }else{
-                                let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
                                 
 
                                 // Register Keys
@@ -802,7 +829,7 @@ mod ordum {
                             allowed_keys: vec![applicant],
                         };
 
-                        let _applicant_val_bytes = self.applicant_profile.insert(&wallet_data.key_pointer,&applicant_data);
+                        let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
                        
 
                         // Register Keys
@@ -923,8 +950,8 @@ mod ordum {
                 key.allowed_keys.contains(&caller)
             }){
 
-                let projects = self.proposal.get(wallet.key_pointer).ok_or_else(||MilestoneError::ProjectNotFound)?;
-                if projects.len() != 0{
+                let projects = self.proposal.get(wallet.key_pointer).ok_or(MilestoneError::ProjectNotFound)?;
+                if !projects.is_empty(){
 
                     if let Some(project) = projects.get(proposal_id as usize - 1){
                         Ok(project.clone())
@@ -999,11 +1026,11 @@ mod ordum {
                     let mut current_project = projects[project_id as usize -1].clone();
                     
                     // Check if there are milestones
-                   if current_project.main.len() == 0{
+                   if current_project.main.is_empty(){
                         Err(MilestoneError::MilestoneNotFound)?
                    }
                    // get the latest no of edits in the specified milestone
-                   let specified_mile = current_project.main.get(mile_no as usize -1).ok_or_else(|| MilestoneError::MilestoneNotFound)?;
+                   let specified_mile = current_project.main.get(mile_no as usize -1).ok_or(MilestoneError::MilestoneNotFound)?;
         
                    // Build the edit milestone object
                    let edited_milestone = EditedMile::new(specified_mile.no_edits + 1,mile_no,file,mem);
@@ -1020,9 +1047,9 @@ mod ordum {
     
 
         #[ink(message, selector = 0xC0DE0011)]
-        fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
+        fn pivote_milestone(&mut self,_project:u8,_mile_no:u8,_file:String,_mem:u32) -> MilestoneResult<()>{
 
-            let caller = Self::env().caller();
+            let _caller = Self::env().caller();
             Ok(())
         }
     
@@ -1033,7 +1060,7 @@ mod ordum {
             let caller = Self::env().caller();
 
             // FetchMilestone Object
-            let mut ResultMilestone = FetchedMilestone::default();
+            let mut result_milestone = FetchedMilestone::default();
 
              // Check if the caller has a profile account
              if let Some(wallet) = self.manage_keys.iter().find(|&key|{
@@ -1047,7 +1074,7 @@ mod ordum {
                     if let Some(project) = projects.get(project_id as usize - 1){
 
                         // Check if the milestone is there
-                        if project.main.len() == 0 {
+                        if project.main.is_empty() {
                             Err(MilestoneError::MilestoneNotFound)?
                         }
 
@@ -1059,11 +1086,11 @@ mod ordum {
                                 // Fetch the edits associated with the milestone
                                 let edit = project.edited.iter().find(|&v| v.0 == m_no);
                                 if edit.is_some(){
-                                    ResultMilestone.main = Some(vec![mile.clone()]); 
-                                    ResultMilestone.edited_per_mile = Some(edit.ok_or_else(|| MilestoneError::UnexpectedError)?.1.clone());
+                                    result_milestone.main = Some(vec![mile.clone()]); 
+                                    result_milestone.edited_per_mile = Some(edit.ok_or(MilestoneError::UnexpectedError)?.1.clone());
                                 }
                                 // If there are no edits
-                                ResultMilestone.main = Some(vec![mile.clone()]); 
+                                result_milestone.main = Some(vec![mile.clone()]); 
 
                             }else{
                                 Err(MilestoneError::MilestoneNotFound)?
@@ -1071,7 +1098,7 @@ mod ordum {
 
                         }else{
                             // Construct a fetchedMilestone object to fetch whole tree of milestone nodes
-                            ResultMilestone.main = Some(project.main.clone());
+                            result_milestone.main = Some(project.main.clone());
                             // Fetch all the edits per milestons
                             // -- check in the edited section if there is a main_index value and push it
 
@@ -1086,8 +1113,8 @@ mod ordum {
                                 })
                             });
                             // Check if the edits_value contain any value if not the leave the ResultMilestone as it is;
-                            if edits_value.len() != 0{
-                                ResultMilestone.all_edits = Some(edits_value);
+                            if !edits_value.is_empty(){
+                                result_milestone.all_edits = Some(edits_value);
                             }
                         }
 
@@ -1101,8 +1128,62 @@ mod ordum {
             }else{
                 Err(MilestoneError::NotAuthorized)?
             }
-            Ok(ResultMilestone)
+            Ok(result_milestone)
                   
         }
     }
+
+    
+
+        // Account abstraction Research
+        // -- Lite implementation of token abstraction , this will be part of ANTA
+        
+        // 2. Offchain DB auth
+        impl OffchainDbAuth for OrdumState {
+            
+            #[ink(message, selector = 0xC0DE0015)]
+            fn get_random(&self) -> CreateResult<Vec<u8>>{
+                // Get Random 20 bits number
+                let rand = pink::ext().getrandom(20);
+                Ok(rand)
+            }
+        
+            #[ink(message, selector= 0xC0DE0016)]
+            fn set_passcode(&mut self,rand:Vec<u8>) -> CreateResult<()>{
+                let caller = Self::env().caller();
+                // Hash caller + rand
+                let mut preimage = caller.encode().to_vec();
+                preimage.append(&mut rand.encode().to_vec());
+
+                let mut hash:[u8;16] = Default::default();
+                <Blake2x128 as CryptoHash>::hash(&preimage[..], &mut hash);
+
+                // Store in the storage
+                let passcode = hash.to_vec();
+                self.db_auth.insert(caller.clone(),&passcode);
+                
+                // Emit Event
+                Self::env().emit_event(
+                    PasscodeSet {
+                        account: caller
+                    }
+                );
+
+                Ok(())
+            }
+
+        
+            #[ink(message, selector= 0xC0DE0017)]
+            fn get_passcode(&self) -> CreateResult<String>{
+                // Get the Vector bit 
+                // Hex encode
+                let caller = Self::env().caller();
+                let passcode_value = self.db_auth.get(&caller).ok_or(Error::NotAuthorized)?;
+
+                let passcode = hex::encode(passcode_value);
+
+                Ok(passcode)
+            }
+    }
+
 }
