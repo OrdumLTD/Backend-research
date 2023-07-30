@@ -122,70 +122,118 @@ pub enum MemberRole {
     Regular
 }
 
-#[derive(Clone, Encode, Decode, Debug,PartialEq)]
-#[cfg_attr(feature = "std", derive(StorageLayout, scale_info::TypeInfo))]
-#[derive(Default)]
+#[derive(Clone,Encode, Decode, Debug)]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
 pub enum UserRole {
-    Individual,
-    #[default]
-    Foundation
+    Applicant,
+    Issuer
 }
 
 
+#[derive(Clone,Encode, Decode, Debug)]
+#[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
+pub struct IndividualProfile {
+    name: String,
+    account_id: AccountId,
+    description: String,
+    chains: Vec<Chains>,
+    pub ref_team: Vec<(AccountId,MemberRole)>,
+    applications: u8,
+    certificates: Vec<(String,u8)>, // (CID,projectId)
+    categories: Vec<Categories>,
+    links: Vec<String>,
+    role: UserRole
+}
 
+impl IndividualProfile {
+    pub fn new(
+        name: String,
+        account_id: AccountId,
+        description: String,
+        chains: Vec<Chains>,
+        categories: Vec<Categories>,
+        links: Vec<String>,
+        role: UserRole
+    ) -> Self {
+        Self{
+            name,
+            account_id,
+            description,
+            chains,
+            ref_team: vec![],
+            applications: 0,
+            certificates: vec![],
+            categories,
+            links,
+            role,
+        }
+    }
+
+    pub fn update_ref_team(&mut self,id:AccountId,role: MemberRole) -> CreateResult<()>{
+        let prev_state = &mut self.ref_team;
+        prev_state.push((id,role));
+        self.ref_team = prev_state.to_vec();
+        Ok(())
+    }
+
+    pub fn update_applications_count(&mut self){
+        self.applications += 1
+    }
+
+}
 
 
 ///  A grant applicant profile
 #[derive(Clone,Encode, Decode, Debug)]
 #[cfg_attr(feature = "std",derive(StorageLayout,scale_info::TypeInfo))]
-pub struct ApplicantProfile {
+pub struct TeamApplicantProfile {
     name: String,
     account_id: AccountId,
     description: String,
     chain: Vec<Chains>,
-    members: Option<Vec<(AccountId,MemberRole)>>,
-    pub ref_team: Vec<AccountId>,// Team Id / Team Account Id
+    members: Vec<(AccountId,MemberRole)>,
     registered_time: Timestamp,
-    applications:Option<u8>,
-    categories: Option<Vec<Categories>>,
-    links:Option<Vec<String>>,
-    role: UserRole 
+    applications:u8,
+    certificates: Vec<(String,u8)>,
+    categories: Vec<Categories>,
+    links: Vec<String>,
+    
 }
 
-impl ApplicantProfile {
+
+impl TeamApplicantProfile {
     pub fn new(
         name: String, 
         description: String,
         account: AccountId,
         time: Timestamp,
-        categories: Option<Vec<Categories>>,
+        categories: Vec<Categories>,
         chain: Vec<Chains>,
-        members: Option<Vec<(AccountId,MemberRole)>>,
-        links: Option<Vec<String>>,
-        role:UserRole
+        members: Vec<(AccountId,MemberRole)>,
+        links: Vec<String>,
+    
     ) -> CreateResult<Self> {
 
         Ok(Self {
             name,
             account_id: account,
             description,
-            members,
-            ref_team: vec![],
+            members: vec![],
             registered_time: time,
-            applications: None,
+            applications: 0,
+            certificates: vec![],
             categories,
             chain,
             links,
-            role
+            
         })
     }
 
-    pub fn update_ref_team(&mut self,team:AccountId) -> CreateResult<()>{
-        let prev_state = &mut self.ref_team;
-        prev_state.push(team);
-        self.ref_team = prev_state.to_vec();
-        Ok(())
+    pub fn update_applications_count(&mut self){
+        self.applications += 1
     }
+
+    
 
 }
 
@@ -334,6 +382,23 @@ pub struct Project{
 
 impl Project {
     
+    pub fn new(
+        id: u8,
+        data: InnerProject,
+        mem: u32
+        
+    ) -> Self {
+        Self{
+            id: id.saturating_add(1),
+            data,
+            edited: vec![],
+            main: vec![],
+            pivoted: vec![],
+            pivot_reason: None,
+            pivot_index: None,
+            total_mem: mem,
+        }
+    }
 
     pub fn add_main(&mut self,mile:AddMilestone,mem:u32) -> Result<(),MilestoneError>{
         // Check if still u have the memory bandwidth
@@ -398,6 +463,30 @@ pub type MilestoneResult<T> = Result<T,MilestoneError>;
 #[ink::trait_definition]
 pub trait CreateProfile {
 
+    /// Create Individual Profile
+    #[ink(message, selector = 0xC0DE0001)]
+    fn create_individual_profile(
+        &mut self,
+        name: String,
+        description: String,
+        categories: Vec<Categories>,
+        chain: Vec<Chains>,
+        links: Vec<String>,
+        role: UserRole
+
+    ) -> CreateResult<()>;
+
+
+    #[ink(message, selector = 0xC0DE0002)]
+    fn update_individual_profile(
+        &mut self,
+        description: Option<String>,
+        categories: Option<Vec<Categories>>,
+        chain: Option<Vec<Chains>>,
+        links: Option<Vec<String>>,
+        role: Option<UserRole>
+    ) -> CreateResult<()>;
+
     /// Creates Applicant Profile,a function which takes on `name`
     ///  `optional applicant profile`, `team-size`, `description`
     /// The optional account act as Team's profile account. If not provided caller's
@@ -405,17 +494,17 @@ pub trait CreateProfile {
     ///
     /// In Phala context this function will be dispatched following block production
     /// as it takes in `&mut self`.
-    #[ink(message,selector =0xC0DE0001)]
+    #[ink(message,selector =0xC0DE0003)]
     fn create_applicant_profile(
 
         &mut self, name: String,
         account: Option<AccountId>,
         description: String,
-        categories: Option<Vec<Categories>>,
-        chain:Vec<Chains>,
-        members: Option<Vec<(AccountId, MemberRole)>>,
-        links:Option<Vec<String>>,
-        role:UserRole
+        categories: Vec<Categories>,
+        chain: Vec<Chains>,
+        members: Vec<(AccountId, MemberRole)>,
+        links: Vec<String>,
+
     ) -> CreateResult<()>;
 
 
@@ -440,7 +529,7 @@ pub trait CreateProfile {
     /// Worst case scenario, time complexity will be `O(n)` with a best case of `O(1)`
     /// In Phala context this function will be dispatched following block production
     /// as it takes in `&mut self`.
-    #[ink(message, selector = 0xC0DE0003)]
+    #[ink(message, selector = 0xC0DE0004)]
     fn update_keys(&mut self,account: AccountId,action: KeyAction) -> CreateResult<()>;
 
 
@@ -455,13 +544,13 @@ pub trait OffchainApply {
 
     /// Naming convention for Offchain grant type
     /// This function creates new application, stores is externally and commits the reference to the chain
-    #[ink(message,selector = 0xC0DE0005)]
+    #[ink(message,selector = 0xC0DE0006)]
     fn apply_grant(&mut self) -> ApplicationResult<()>;
 
-    #[ink(message,selector = 0xC0DE0006)]
+    #[ink(message,selector = 0xC0DE0007)]
     fn update_application(&mut self) -> ApplicationResult<()>;
 
-    #[ink(message,selector = 0xC0DE0007)]
+    #[ink(message,selector = 0xC0DE0008)]
     fn review_application(&mut self) -> ApplicationResult<()>;
 }
 
@@ -471,7 +560,7 @@ pub trait OnchainGrant {
 
     /// This will be used to attest the success of the grant and the team
     /// This can only be used after community consensus and form the parameters of legitimacy
-     #[ink(message,selector = 0xC0DE0008)]
+     #[ink(message,selector = 0xC0DE0009)]
     fn issue_treasury_certificate(&self) -> ApplicationResult<()>;
 
 }
@@ -496,18 +585,18 @@ pub trait OnchainGrant {
 #[ink::trait_definition]
 pub trait MilestoneTracker {
     
-    #[ink(message, selector = 0xC0DE0009)]
+    #[ink(message, selector = 0xC0DE0010)]
     fn add_milestone(&mut self,project:u8,file:String,mem:u32) -> MilestoneResult<()>;
 
-    #[ink(message, selector = 0xC0DE0010)]
+    #[ink(message, selector = 0xC0DE0011)]
     fn edit_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
 
-    #[ink(message, selector = 0xC0DE0011)]
+    #[ink(message, selector = 0xC0DE0012)]
     fn pivote_milestone(&mut self,project:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>;
 
     /// Flexible to fetch any stage of the milestone
     /// Annotate which depth of the edits you want to receive, default set to all edits
-    #[ink(message, selector = 0xC0DE0012)]
+    #[ink(message, selector = 0xC0DE0013)]
     fn fetch_milestone(&self,project_id:u8,mile_no:Option<u8>) -> MilestoneResult<FetchedMilestone>;
     
 }
@@ -517,11 +606,11 @@ pub trait MilestoneTracker {
 #[ink::trait_definition]
 pub trait Proposer {
     
-    #[ink(message, selector = 0xC0DE0013)]
+    #[ink(message, selector = 0xC0DE0014)]
     fn add_proposal(&mut self,chain:Chains,ref_no:Option<u32>,file:String,mem:u32) -> MilestoneResult<()>;
 
 
-    #[ink(message, selector = 0xC0DE0014)]
+    #[ink(message, selector = 0xC0DE0015)]
     fn fetch_proposal(&self,proposal_id:u8) -> MilestoneResult<Project>;
     
 }
@@ -531,13 +620,13 @@ pub trait Proposer {
 #[ink::trait_definition]
 pub trait OffchainDbAuth {
 
-    #[ink(message, selector = 0xC0DE0015)]
+    #[ink(message, selector = 0xC0DE0016)]
     fn get_random(&self) -> CreateResult<Vec<u8>>;
 
-    #[ink(message, selector= 0xC0DE0016)]
+    #[ink(message, selector= 0xC0DE0017)]
     fn set_passcode(&mut self,rand:Vec<u8>) -> CreateResult<()>;
 
-    #[ink(message, selector= 0xC0DE0017)]
+    #[ink(message, selector= 0xC0DE0018)]
     fn get_passcode(&self) -> CreateResult<String>;
 
 }
@@ -552,7 +641,7 @@ mod ordum {
     use pink_extension as pink;
     use ink_env::hash::{CryptoHash,Blake2x128};
     use scale::{Encode,Decode};
-    use hex;
+    use hex::ToHex;
 
     use crate::{Categories,AddMilestone,EditedMile,
         Chains, CreateResult, 
@@ -560,7 +649,8 @@ mod ordum {
         Project, FetchedMilestone,Proposer,OffchainDbAuth
     };
     use super::{Vec,vec,CreateProfile,String,
-        ApplicantProfile,
+        TeamApplicantProfile,
+        IndividualProfile,
         Error,MilestoneError,MilestoneResult,
         MilestoneTracker,InnerProject};
 
@@ -568,7 +658,8 @@ mod ordum {
     /// Ordum Global State
     #[ink(storage)]
     pub struct OrdumState {
-        applicant_profile: Mapping<AccountId,ApplicantProfile>,
+        individual_profile: Mapping<AccountId,IndividualProfile>,
+        team_applicant_profile: Mapping<AccountId,TeamApplicantProfile>,
         manage_keys: Vec<KeyManagement>,
         proposal: Mapping<AccountId,Vec<Project>>,
         db_auth: Mapping<AccountId,Vec<u8>>
@@ -581,16 +672,27 @@ mod ordum {
     }
 
 
-    /// Event emitted when new Applicant is registered
+    /// Event for individual profile creation
         #[ink(event)]
-        pub struct ApplicantAccountCreated {
+        pub struct IndividualProfileCreated {
             #[ink(topic)]
             name: String,
+            account: AccountId,
+            time: Timestamp
+        }
+
+
+    /// Event emitted when new Applicant is registered
+        #[ink(event)]
+        pub struct TeamApplicantCreated {
+            #[ink(topic)]
+            name: String,
+            account: AccountId,
             time:  Timestamp
         }
     /// Event emitted when Applicant updates the profile
         #[ink(event)]
-        pub struct ApplicantUpdated {
+        pub struct TeamApplicantUpdated {
             #[ink(topic)]
             name: String,
             time: Timestamp
@@ -603,13 +705,25 @@ mod ordum {
             account: AccountId
         }
 
+    /// Event for notifying a reference team link has been updated per individual profile
+        #[ink(event)]
+        pub struct UpdatedTeamMembership {
+            #[ink(topic)]
+            team_name: String,
+            team_id: AccountId,
+            individual_id: AccountId,
+            time: Timestamp
+        }
+
+
     impl OrdumState {
 
         #[ink(constructor)]
         pub fn new() -> Self{
                               
                 Self {
-                    applicant_profile: Mapping::default(),
+                    individual_profile: Mapping::default(),
+                    team_applicant_profile: Mapping::default(),
                     manage_keys: vec![],
                     proposal: Mapping::default(),
                     db_auth: Mapping::default()
@@ -629,20 +743,20 @@ mod ordum {
                     code_hash, err
                 )
             });
-            ink::env::debug_println!("Switched code hash to {:?}.", code_hash);
+            ink::env::debug_println!(" Switched code hash to {:?}.", code_hash);
         }
 
        
 
         #[ink(message,selector=0xC0DE1001)]
-        pub fn get_applicant_profile(&self) -> CreateResult<ApplicantProfile>{
+        pub fn get_applicant_profile(&self) -> CreateResult<TeamApplicantProfile>{
 
             let caller = Self::env().caller();
             // Check if the caller is authorized to retrieve Applicant profile
             if let Some(wallet) = self.manage_keys.iter().find(|&key|{
                 key.allowed_keys.contains(&caller)
             }){
-                let profile = self.applicant_profile.get(wallet.key_pointer)
+                let profile = self.team_applicant_profile.get(wallet.key_pointer)
                     .ok_or(Error::UnexpectedError)?;
 
                 Ok(profile)
@@ -656,17 +770,67 @@ mod ordum {
     }
 
     impl CreateProfile for OrdumState {
-        #[ink(message,selector =0xC0DE0001)]
+
+        #[ink(message, selector = 0xC0DE0001)]
+        fn create_individual_profile(
+            &mut self,
+            name: String,
+            description: String,
+            categories: Vec<Categories>,
+            chain: Vec<Chains>,
+            links: Vec<String>,
+            role: UserRole
+
+        ) -> CreateResult<()>{
+
+            let caller = Self::env().caller();
+            let time = Self::env().block_timestamp();
+            // Check if the profile is there
+            if self.individual_profile.get(caller).is_none(){
+
+                let profile = IndividualProfile::new(name.clone(),caller,description,chain,categories,links,role);
+                self.individual_profile.insert(caller,&profile);
+
+                Self::env().emit_event(IndividualProfileCreated{
+                    name,
+                    account: caller,
+                    time
+                })
+
+            }else{
+                Err(Error::AccountExists)?
+            }
+
+            Ok(())
+        }
+    
+    
+        #[ink(message, selector = 0xC0DE0002)]
+        fn update_individual_profile(
+            &mut self,
+            description: Option<String>,
+            categories: Option<Vec<Categories>>,
+            chain: Option<Vec<Chains>>,
+            links: Option<Vec<String>>,
+            role: Option<UserRole>
+
+        ) -> CreateResult<()>{
+
+            Ok(())
+        }
+
+
+        #[ink(message,selector =0xC0DE0003)]
         fn create_applicant_profile(
             
             &mut self, name: String,
             account: Option<AccountId>,
             description: String,
-            categories: Option<Vec<Categories>>,
-            chain:Vec<Chains>,
-            members: Option<Vec<(AccountId, MemberRole)>>,
-            links:Option<Vec<String>>,
-            role:UserRole
+            categories: Vec<Categories>,
+            chain: Vec<Chains>,
+            members: Vec<(AccountId, MemberRole)>,
+            links: Vec<String>,
+           
 
         ) -> CreateResult<()> {
 
@@ -677,19 +841,19 @@ mod ordum {
             if let Some(account_inner) = account {
                 // Check using wallet key pointer ?????????
                 // Check if account exists
-                if self.applicant_profile.contains(account_inner){
+                if self.team_applicant_profile.contains(account_inner){
                     return Err(Error::AccountExists);
                 }
 
-                let applicant_data = ApplicantProfile::new(name,description,account_inner,time,categories,chain,members.clone(),links,role)
+                let team_applicant_data = TeamApplicantProfile::new(name,description,account_inner,time,categories,chain,members.clone(),links)
                     .map_err(|_|Error::UnexpectedError)?;
 
                 // Check for member addition reference
-                if let Some(member) = members {
+                if members.len() !=0 {
                         // Update the Key Mangement
                         let mut keys = vec![applicant];
 
-                        member.iter().for_each(|mem|{
+                        members.iter().for_each(|mem|{
                             if mem.1 == MemberRole::Admin{
                                 keys.push(mem.0);
                             }
@@ -702,33 +866,43 @@ mod ordum {
                         };
 
 
-                        // Check if the AccountId does have a profile
-                        member.iter().for_each(|mem|{
-                            if self.applicant_profile.contains(mem.0) {
-                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap();
-                                acc_data.update_ref_team(account_inner).unwrap();
+                        // Check if the AccountId does have a and individual profile
+                        // And hook it up in the main Team
+                        members.iter().for_each(|mem|{
+                            if self.individual_profile.contains(mem.0) {
+                                let mut acc_data = self.individual_profile.get(mem.0).unwrap();
+                                acc_data.clone().update_ref_team(account_inner,mem.clone().1).unwrap();
+
+                                Self::env().emit_event(UpdatedTeamMembership{
+                                    team_name: team_applicant_data.clone().name,
+                                    team_id: team_applicant_data.clone().account_id,
+                                    individual_id: acc_data.account_id,
+                                    time
+                                });
 
 
-                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
+                                let _team_applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                 
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
                                 // Emits an event
-                                Self::env().emit_event(ApplicantAccountCreated{
-                                    name:applicant_data.clone().name,
+                                Self::env().emit_event(TeamApplicantCreated{
+                                    name:team_applicant_data.clone().name,
+                                    account: team_applicant_data.clone().account_id,
                                     time,
                                 });
 
                             }else{
-                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
                                 // Emits an event
-                                Self::env().emit_event(ApplicantAccountCreated{
-                                    name:applicant_data.clone().name,
+                                Self::env().emit_event(TeamApplicantCreated{
+                                    name:team_applicant_data.clone().name,
+                                    account: team_applicant_data.clone().account_id,
                                     time,
                                 });
                                 
@@ -745,14 +919,15 @@ mod ordum {
                             allowed_keys: vec![applicant],
                         };
 
-                        let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
+                        let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                         
 
                         // Register Keys
                         self.manage_keys.push(wallet_data.clone());
                         // Emits an event
-                        Self::env().emit_event(ApplicantAccountCreated{
-                            name:applicant_data.clone().name,
+                        Self::env().emit_event(TeamApplicantCreated{
+                            name:team_applicant_data.clone().name,
+                            account: team_applicant_data.clone().account_id,
                             time,
                         });
                         Ok(())
@@ -762,19 +937,19 @@ mod ordum {
 
             } else {
                 // Check if account Exists
-                if self.applicant_profile.contains(applicant){
+                if self.team_applicant_profile.contains(applicant){
                    return  Err(Error::AccountExists)
                 }
                 // If no account provided, applicant will be used.
-                let applicant_data = ApplicantProfile::new(name,description,applicant,time,categories,chain,members.clone(),links,role)
+                let team_applicant_data = TeamApplicantProfile::new(name,description,applicant,time,categories,chain,members.clone(),links)
                     .map_err(|_|Error::UnexpectedError)?;
 
                 // Check for member addition reference
-                if let Some(member) = members {
+                if members.len() != 0 {
                         // Update the Key Mangement
                         let mut keys = vec![applicant];
 
-                        member.iter().for_each(|mem|{
+                        members.iter().for_each(|mem|{
                             if mem.1 == MemberRole::Admin{
                                 keys.push(mem.0);
                             }
@@ -787,36 +962,44 @@ mod ordum {
                         };
 
 
-                        // Check if the AccountId does have a profile
-                        member.iter().for_each(|mem|{
-                            if self.applicant_profile.contains(mem.0) {
-                                let mut acc_data = self.applicant_profile.get(mem.0).unwrap();
-                                acc_data.update_ref_team(applicant).unwrap();
+                        // Check if the AccountId does have an individual profile
+                        members.iter().for_each(|mem|{
+                            if self.individual_profile.contains(mem.0) {
+                                let mut acc_data = self.individual_profile.get(mem.0).unwrap();
+                                acc_data.update_ref_team(applicant,mem.clone().1).unwrap();
+
+                                Self::env().emit_event(UpdatedTeamMembership{
+                                    team_name: team_applicant_data.clone().name,
+                                    team_id: team_applicant_data.clone().account_id,
+                                    individual_id: acc_data.account_id,
+                                    time
+                                });
 
 
-                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                 
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
                                 // Emits an event
-                                Self::env().emit_event(ApplicantAccountCreated{
-                                    name:applicant_data.clone().name,
+                                Self::env().emit_event(TeamApplicantCreated{
+                                    name:team_applicant_data.clone().name,
+                                    account: team_applicant_data.clone().account_id,
                                     time,
                                 });
 
                             }else{
-                                let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
+                                let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                 
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
                                 // Emits an event
-                                Self::env().emit_event(ApplicantAccountCreated{
-                                    name:applicant_data.clone().name,
+                                Self::env().emit_event(TeamApplicantCreated{
+                                    name:team_applicant_data.clone().name,
+                                    account: team_applicant_data.clone().account_id,
                                     time,
                                 });
-                                
                             }
                         });
 
@@ -829,16 +1012,18 @@ mod ordum {
                             allowed_keys: vec![applicant],
                         };
 
-                        let _applicant_val_bytes = self.applicant_profile.insert(wallet_data.key_pointer,&applicant_data);
+                        let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                        
 
                         // Register Keys
                         self.manage_keys.push(wallet_data.clone());
                         // Emits an event
-                        Self::env().emit_event(ApplicantAccountCreated{
-                            name:applicant_data.clone().name,
+                        Self::env().emit_event(TeamApplicantCreated{
+                            name:team_applicant_data.clone().name,
+                            account: team_applicant_data.clone().account_id,
                             time,
                         });
+
                         Ok(())
 
                     }
@@ -850,7 +1035,7 @@ mod ordum {
 
 
 
-        #[ink(message, selector = 0xC0DE0003)]
+        #[ink(message, selector = 0xC0DE0004)]
         fn update_keys(&mut self, account: AccountId, action: KeyAction) -> CreateResult<()> {
             let caller = Self::env().caller();
             // check if the account is registered as admin
@@ -878,7 +1063,7 @@ mod ordum {
 
     impl Proposer for OrdumState {
 
-        #[ink(message, selector = 0xC0DE0013)]
+        #[ink(message, selector = 0xC0DE0014)]
         fn add_proposal(&mut self,chain:Chains,ref_no:Option<u32>,file:String,mem:u32) -> MilestoneResult<()>{
 
             let caller = Self::env().caller();
@@ -898,19 +1083,14 @@ mod ordum {
                         referenda_no:ref_no
                     };
 
-                    let project = Project {
-                        id: no_projects.saturating_add(1),
-                        data: inner_project,
-                        edited: vec![],
-                        main: vec![],
-                        pivoted: vec![],
-                        pivot_reason: None,
-                        pivot_index: None,
-                        total_mem: mem
-                    };
+                    let project = Project::new(no_projects,inner_project,mem);
 
                     projects.push(project);
-                    
+
+                    // update Team application count
+                    let mut team_profile = self.team_applicant_profile.get(wallet.key_pointer).unwrap();
+
+                    team_profile.update_applications_count();
                     
                 }else{
                     
@@ -920,28 +1100,61 @@ mod ordum {
                         referenda_no:ref_no
                     };
 
-                    let project = Project {
-                        id: 1,
-                        data: inner_project,
-                        edited: vec![],
-                        main: vec![],
-                        pivoted: vec![],
-                        pivot_reason: None,
-                        pivot_index: None,
-                        total_mem: mem
-                    };
+                    let project = Project::new(0,inner_project,mem);
 
                     self.proposal.insert(wallet.key_pointer,&vec![project]);
+
+                    // update Team application count
+                    let mut team_profile = self.team_applicant_profile.get(wallet.key_pointer).unwrap();
+
+                    team_profile.update_applications_count();
                 }
 
             }else{
-                Err(MilestoneError::NotAuthorized)?
+
+                // Check if there is an individual profile and update application count
+                if let Some(mut individual) = self.individual_profile.get(caller) {
+                     // Check if there is existing Projects
+                        if let Some(mut projects) = self.proposal.get(caller){
+
+                            let no_projects = projects.len() as u8;
+                            // Build the Project Object and InnerProject
+                            let inner_project = InnerProject {
+                                chain,
+                                file,
+                                referenda_no:ref_no
+                            };
+
+                            let project = Project::new(no_projects,inner_project,mem);
+
+                            projects.push(project);
+
+                            individual.update_applications_count();
+                            
+                        }else{
+                            
+                            let inner_project = InnerProject {
+                                chain,
+                                file,
+                                referenda_no:ref_no
+                            };
+
+                            let project = Project::new(0,inner_project,mem);
+
+                            self.proposal.insert(caller,&vec![project]);
+
+                            individual.update_applications_count();
+                        }
+                }else{
+                    Err(MilestoneError::NotAuthorized)?
+                }
+                
             }
             Ok(())
         }
 
 
-        #[ink(message, selector = 0xC0DE0014)]
+        #[ink(message, selector = 0xC0DE0015)]
         fn fetch_proposal(&self,proposal_id:u8) -> MilestoneResult<Project>{
 
             let caller = Self::env().caller();
@@ -956,7 +1169,7 @@ mod ordum {
                     if let Some(project) = projects.get(proposal_id as usize - 1){
                         Ok(project.clone())
                     }else{
-                        Err(MilestoneError::NotAuthorized)
+                        Err(MilestoneError::ProjectNotFound)
                     }
 
                 }else{
@@ -964,7 +1177,26 @@ mod ordum {
                 }
 
             }else{
-                Err(MilestoneError::NotAuthorized)
+                // fetch for individual profile
+                if self.individual_profile.get(caller).is_some(){
+
+                    let projects = self.proposal.get(caller).ok_or(MilestoneError::ProjectNotFound)?;
+                    if !projects.is_empty(){
+
+                        if let Some(project) = projects.get(proposal_id as usize - 1){
+                            Ok(project.clone())
+                        }else{
+                            Err(MilestoneError::ProjectNotFound)
+                        }
+
+                    }else{
+                        Err(MilestoneError::ProjectNotFound)
+                    }
+
+                }else{
+                    Err(MilestoneError::NotAuthorized)
+                }
+                
             }
         }
     }
@@ -973,7 +1205,7 @@ mod ordum {
 
     impl MilestoneTracker for OrdumState {
        
-        #[ink(message, selector = 0xC0DE0009)]
+        #[ink(message, selector = 0xC0DE0010)]
         fn add_milestone(&mut self,project_id:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
             let caller = Self::env().caller();
@@ -981,7 +1213,7 @@ mod ordum {
             if let Some(wallet) = self.manage_keys.iter().find(|&key|{
                 key.allowed_keys.contains(&caller)
             }){
-                let _applicant = self.applicant_profile.get(wallet.key_pointer).unwrap();
+                
                 
                 // Check if there id a registered project
                 if let Some(projects) = self.proposal.get(wallet.key_pointer){
@@ -1004,13 +1236,43 @@ mod ordum {
                 }else{
                     Err(MilestoneError::ProjectNotFound)?
                 }
+            }else{
+                // Check if there is an individual profile and update application count
+                if self.individual_profile.get(caller).is_some(){
+
+                     // Check if there id a registered project
+                    if let Some(projects) = self.proposal.get(caller){
+                        let mut current_project = projects[project_id as usize -1].clone();
+                        
+                        // Check if there are milestones
+                        if let Some(mile) = current_project.main.last(){
+                            // Build a Milestone
+                            let current_main_index = current_project.main.len() as u8;
+                            
+                            let milestone = AddMilestone::new(current_main_index +1, mile.no_edits, file, mem);
+                            current_project.add_main(milestone, mem)?
+
+                        }else{
+
+                            let milestone = AddMilestone::new(1, 0, file, mem);
+                            current_project.add_main(milestone, mem)?
+                        }
+                    Ok(())? 
+
+                    }else{
+                        Err(MilestoneError::ProjectNotFound)?
+                    }
+
+                }else{
+                    Err(MilestoneError::NotAuthorized)?
+                }
             }
             Ok(())
         }
     
     
 
-        #[ink(message, selector = 0xC0DE0010)]
+        #[ink(message, selector = 0xC0DE0011)]
         fn edit_milestone(&mut self,project_id:u8,mile_no:u8,file:String,mem:u32) -> MilestoneResult<()>{
 
             let caller = Self::env().caller();
@@ -1019,7 +1281,7 @@ mod ordum {
              if let Some(wallet) = self.manage_keys.iter().find(|&key|{
                 key.allowed_keys.contains(&caller)
             }){
-                let _applicant = self.applicant_profile.get(wallet.key_pointer).unwrap();
+                
 
                  // Check if there id a registered project
                  if let Some(projects) = self.proposal.get(wallet.key_pointer){
@@ -1040,13 +1302,42 @@ mod ordum {
                 }else{
                     Err(MilestoneError::ProjectNotFound)?
                 }
+
+            }else{
+                // Check for individual profile
+                if self.individual_profile.get(caller).is_some(){
+
+                    // Check if there id a registered project
+                    if let Some(projects) = self.proposal.get(caller){
+                        let mut current_project = projects[project_id as usize -1].clone();
+                        
+                        // Check if there are milestones
+                    if current_project.main.is_empty(){
+                            Err(MilestoneError::MilestoneNotFound)?
+                    }
+                    // get the latest no of edits in the specified milestone
+                    let specified_mile = current_project.main.get(mile_no as usize -1).ok_or(MilestoneError::MilestoneNotFound)?;
+            
+                    // Build the edit milestone object
+                    let edited_milestone = EditedMile::new(specified_mile.no_edits + 1,mile_no,file,mem);
+                    // Store it
+                    current_project.add_edit(mile_no, edited_milestone, mem)?;
+                    Ok(())? 
+
+                    }else{
+                        Err(MilestoneError::ProjectNotFound)?
+                    }
+
+                }else{
+                    Err(MilestoneError::NotAuthorized)?
+                }
             }            
 
             Ok(())
         }
     
 
-        #[ink(message, selector = 0xC0DE0011)]
+        #[ink(message, selector = 0xC0DE0012)]
         fn pivote_milestone(&mut self,_project:u8,_mile_no:u8,_file:String,_mem:u32) -> MilestoneResult<()>{
 
             let _caller = Self::env().caller();
@@ -1054,7 +1345,7 @@ mod ordum {
         }
     
 
-        #[ink(message, selector = 0xC0DE0012)]
+        #[ink(message, selector = 0xC0DE0013)]
         fn fetch_milestone(&self,project_id:u8,mile_no:Option<u8>) -> MilestoneResult<FetchedMilestone>{
 
             let caller = Self::env().caller();
@@ -1126,7 +1417,71 @@ mod ordum {
                     Err(MilestoneError::ProjectNotFound)?
                 }
             }else{
-                Err(MilestoneError::NotAuthorized)?
+                // fetch for individual profile
+                if self.individual_profile.get(caller).is_some(){
+
+                    // Check if the projects are there
+                    if let Some(projects) = self.proposal.get(caller){
+                        // Check if the specific project is there
+                        if let Some(project) = projects.get(project_id as usize - 1){
+
+                            // Check if the milestone is there
+                            if project.main.is_empty() {
+                                Err(MilestoneError::MilestoneNotFound)?
+                            }
+
+                            // Check if specific milestone is given
+                            if let Some(m_no) = mile_no{
+                                // Fetch the milestone in the main and the edits
+                                if let Some(mile) = project.main.get(m_no as usize -1){
+
+                                    // Fetch the edits associated with the milestone
+                                    let edit = project.edited.iter().find(|&v| v.0 == m_no);
+                                    if edit.is_some(){
+                                        result_milestone.main = Some(vec![mile.clone()]); 
+                                        result_milestone.edited_per_mile = Some(edit.ok_or(MilestoneError::UnexpectedError)?.1.clone());
+                                    }
+                                    // If there are no edits
+                                    result_milestone.main = Some(vec![mile.clone()]); 
+
+                                }else{
+                                    Err(MilestoneError::MilestoneNotFound)?
+                                }  
+
+                            }else{
+                                // Construct a fetchedMilestone object to fetch whole tree of milestone nodes
+                                result_milestone.main = Some(project.main.clone());
+                                // Fetch all the edits per milestons
+                                // -- check in the edited section if there is a main_index value and push it
+
+                                //NOTE: We can optimize here as for now the algorithm is searching the whole edited vector and it doest need to; 0(N^N)
+                                let mut edits_value:Vec<(u8,Vec<EditedMile>)> = Vec::new();
+
+                                project.main.iter().for_each(|m|{
+                                    project.edited.iter().for_each(|edit|{
+                                    if edit.0 == m.main_index{
+                                            edits_value.push(edit.clone())
+                                    }
+                                    })
+                                });
+                                // Check if the edits_value contain any value if not the leave the ResultMilestone as it is;
+                                if !edits_value.is_empty(){
+                                    result_milestone.all_edits = Some(edits_value);
+                                }
+                            }
+
+                        }else{
+                            Err(MilestoneError::ProjectNotFound)?
+                        }     
+                        
+                    }else{
+                        Err(MilestoneError::ProjectNotFound)?
+                    }
+
+                }else{
+                    Err(MilestoneError::NotAuthorized)?
+                }
+                
             }
             Ok(result_milestone)
                   
@@ -1141,14 +1496,14 @@ mod ordum {
         // 2. Offchain DB auth
         impl OffchainDbAuth for OrdumState {
             
-            #[ink(message, selector = 0xC0DE0015)]
+            #[ink(message, selector = 0xC0DE0016)]
             fn get_random(&self) -> CreateResult<Vec<u8>>{
                 // Get Random 20 bits number
                 let rand = pink::ext().getrandom(20);
                 Ok(rand)
             }
         
-            #[ink(message, selector= 0xC0DE0016)]
+            #[ink(message, selector= 0xC0DE0017)]
             fn set_passcode(&mut self,rand:Vec<u8>) -> CreateResult<()>{
                 let caller = Self::env().caller();
                 // Hash caller + rand
@@ -1173,14 +1528,14 @@ mod ordum {
             }
 
         
-            #[ink(message, selector= 0xC0DE0017)]
+            #[ink(message, selector= 0xC0DE0018)]
             fn get_passcode(&self) -> CreateResult<String>{
                 // Get the Vector bit 
                 // Hex encode
                 let caller = Self::env().caller();
                 let passcode_value = self.db_auth.get(&caller).ok_or(Error::NotAuthorized)?;
 
-                let passcode = hex::encode(passcode_value);
+                let passcode = passcode_value.encode_hex::<String>();
 
                 Ok(passcode)
             }
