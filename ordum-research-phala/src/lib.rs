@@ -4,8 +4,8 @@
 
 
 use ink::{self};
-use ink::primitives::{AccountId};
-use ink::storage::traits::{StorageLayout};
+use ink::primitives::AccountId;
+use ink::storage::traits::StorageLayout;
 use scale::{Decode, Encode};
 use ink::prelude::{vec::Vec,vec,string::String};
 
@@ -190,6 +190,7 @@ pub struct TeamApplicantProfile {
     name: String,
     account_id: AccountId,
     description: String,
+    mission: String,
     chain: Vec<Chains>,
     members: Vec<(AccountId,MemberRole)>,
     registered_time: Timestamp,
@@ -205,6 +206,7 @@ impl TeamApplicantProfile {
     pub fn new(
         name: String, 
         description: String,
+        mission: String,
         account: AccountId,
         time: Timestamp,
         categories: Vec<Categories>,
@@ -218,7 +220,8 @@ impl TeamApplicantProfile {
             name,
             account_id: account,
             description,
-            members: vec![],
+            mission,
+            members,
             registered_time: time,
             applications: 0,
             certificates: vec![],
@@ -500,6 +503,7 @@ pub trait CreateProfile {
         &mut self, name: String,
         account: Option<AccountId>,
         description: String,
+        mission: String,
         categories: Vec<Categories>,
         chain: Vec<Chains>,
         members: Vec<(AccountId, MemberRole)>,
@@ -640,7 +644,7 @@ mod ordum {
     use ink::storage::Mapping;
     use pink_extension as pink;
     use ink_env::hash::{CryptoHash,Blake2x128};
-    use scale::{Encode,Decode};
+    use scale::Encode;
     use hex::ToHex;
 
     use crate::{Categories,AddMilestone,EditedMile,
@@ -659,7 +663,11 @@ mod ordum {
     #[ink(storage)]
     pub struct OrdumState {
         individual_profile: Mapping<AccountId,IndividualProfile>,
+        all_individuals: Vec<(String,AccountId)>,
+
         team_applicant_profile: Mapping<AccountId,TeamApplicantProfile>,
+        all_applicant_teams: Vec<(String,AccountId)>,
+
         manage_keys: Vec<KeyManagement>,
         proposal: Mapping<AccountId,Vec<Project>>,
         db_auth: Mapping<AccountId,Vec<u8>>
@@ -723,7 +731,9 @@ mod ordum {
                               
                 Self {
                     individual_profile: Mapping::default(),
+                    all_individuals: vec![],
                     team_applicant_profile: Mapping::default(),
+                    all_applicant_teams: vec![],
                     manage_keys: vec![],
                     proposal: Mapping::default(),
                     db_auth: Mapping::default()
@@ -735,7 +745,7 @@ mod ordum {
         ///
         /// We use this to upgrade the contract logic. We don't do any authorization here, any caller
         /// can execute this method. In a production contract you would do some authorization here.
-        #[ink(message)]
+        #[ink(message, selector = 0xC0DE2000 )]
         pub fn set_code(&mut self, code_hash: [u8; 32]) {
             ink::env::set_code_hash(&code_hash).unwrap_or_else(|err| {
                 panic!(
@@ -749,25 +759,75 @@ mod ordum {
        
 
         #[ink(message,selector=0xC0DE1001)]
-        pub fn get_applicant_profile(&self) -> CreateResult<TeamApplicantProfile>{
+        pub fn get_team_applicant_profile(&self,id:Option<AccountId>) -> CreateResult<TeamApplicantProfile>{
 
-            let caller = Self::env().caller();
-            // Check if the caller is authorized to retrieve Applicant profile
-            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
-                key.allowed_keys.contains(&caller)
-            }){
-                let profile = self.team_applicant_profile.get(wallet.key_pointer)
-                    .ok_or(Error::UnexpectedError)?;
+            if let Some(id_inner) = id {
 
-                Ok(profile)
+                if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                    key.allowed_keys.contains(&id_inner)
+                }){
+                    let profile = self.team_applicant_profile.get(wallet.key_pointer)
+                        .ok_or(Error::UnexpectedError)?;
+
+                    Ok(profile)
+                }else{
+                    Err(Error::NotAuthorized)
+                }
+
             }else{
-                Err(Error::NotAuthorized)
+
+                let caller = Self::env().caller();
+                // Check if the caller is authorized to retrieve Applicant profile
+                if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                    key.allowed_keys.contains(&caller)
+                }){
+                    let profile = self.team_applicant_profile.get(wallet.key_pointer)
+                        .ok_or(Error::UnexpectedError)?;
+
+                    Ok(profile)
+                }else{
+                    Err(Error::NotAuthorized)
+                }
+
             }
 
         }
 
+
+        #[ink(message, selector = 0xC0DE1002)]
+        pub fn get_all_applicant_teams(&self) -> CreateResult<Vec<(String, AccountId)>>{
+            Ok(self.all_applicant_teams.clone())
+        }
+
+
+        #[ink(message, selector = 0xC0DE1003)]
+        pub fn get_individual_profile(&self,id:Option<AccountId>) -> CreateResult<IndividualProfile> {
+
+            if let Some(id_inner) = id {
+
+                let profile = self.individual_profile.get(id_inner).ok_or(Error::AccountDontExists)?;
+                Ok(profile)
+
+            }else{
+
+                let caller = Self::env().caller();
+
+                let profile = self.individual_profile.get(caller).ok_or(Error::AccountDontExists)?;
+                Ok(profile)
+
+            }
+        }
+
+
+        #[ink(message, selector = 0xC0DE1004)]
+        pub fn get_all_individuals(&self) -> CreateResult<Vec<(String, AccountId)>>{
+            Ok(self.all_individuals.clone())
+        }
+        
       
     }
+
+
 
     impl CreateProfile for OrdumState {
 
@@ -791,6 +851,9 @@ mod ordum {
                 let profile = IndividualProfile::new(name.clone(),caller,description,chain,categories,links,role);
                 self.individual_profile.insert(caller,&profile);
 
+                // update all individual account keys
+                self.all_individuals.push((name.clone(),caller));
+
                 Self::env().emit_event(IndividualProfileCreated{
                     name,
                     account: caller,
@@ -808,11 +871,11 @@ mod ordum {
         #[ink(message, selector = 0xC0DE0002)]
         fn update_individual_profile(
             &mut self,
-            description: Option<String>,
-            categories: Option<Vec<Categories>>,
-            chain: Option<Vec<Chains>>,
-            links: Option<Vec<String>>,
-            role: Option<UserRole>
+            _description: Option<String>,
+            _categories: Option<Vec<Categories>>,
+            _chain: Option<Vec<Chains>>,
+            _links: Option<Vec<String>>,
+            _role: Option<UserRole>
 
         ) -> CreateResult<()>{
 
@@ -826,6 +889,7 @@ mod ordum {
             &mut self, name: String,
             account: Option<AccountId>,
             description: String,
+            mission: String,
             categories: Vec<Categories>,
             chain: Vec<Chains>,
             members: Vec<(AccountId, MemberRole)>,
@@ -845,11 +909,12 @@ mod ordum {
                     return Err(Error::AccountExists);
                 }
 
-                let team_applicant_data = TeamApplicantProfile::new(name,description,account_inner,time,categories,chain,members.clone(),links)
+                let team_applicant_data = TeamApplicantProfile::new(name,description,mission,account_inner,time,categories,chain,members.clone(),links)
                     .map_err(|_|Error::UnexpectedError)?;
 
+
                 // Check for member addition reference
-                if members.len() !=0 {
+                if !members.is_empty() {
                         // Update the Key Mangement
                         let mut keys = vec![applicant];
 
@@ -870,7 +935,7 @@ mod ordum {
                         // And hook it up in the main Team
                         members.iter().for_each(|mem|{
                             if self.individual_profile.contains(mem.0) {
-                                let mut acc_data = self.individual_profile.get(mem.0).unwrap();
+                                let acc_data = self.individual_profile.get(mem.0).unwrap();
                                 acc_data.clone().update_ref_team(account_inner,mem.clone().1).unwrap();
 
                                 Self::env().emit_event(UpdatedTeamMembership{
@@ -883,6 +948,8 @@ mod ordum {
 
                                 let _team_applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                 
+                                // update all team account keys
+                                self.all_applicant_teams.push((team_applicant_data.clone().name,wallet_data.key_pointer));
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -895,7 +962,9 @@ mod ordum {
 
                             }else{
                                 let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
-                               
+                                
+                                // update all team account keys
+                                self.all_applicant_teams.push((team_applicant_data.clone().name,wallet_data.key_pointer));
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -921,9 +990,11 @@ mod ordum {
 
                         let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                         
+                        // update all team account keys
+                        self.all_applicant_teams.push((team_applicant_data.clone().name,wallet_data.key_pointer));
 
                         // Register Keys
-                        self.manage_keys.push(wallet_data.clone());
+                        self.manage_keys.push(wallet_data);
                         // Emits an event
                         Self::env().emit_event(TeamApplicantCreated{
                             name:team_applicant_data.clone().name,
@@ -941,11 +1012,11 @@ mod ordum {
                    return  Err(Error::AccountExists)
                 }
                 // If no account provided, applicant will be used.
-                let team_applicant_data = TeamApplicantProfile::new(name,description,applicant,time,categories,chain,members.clone(),links)
+                let team_applicant_data = TeamApplicantProfile::new(name,description,mission,applicant,time,categories,chain,members.clone(),links)
                     .map_err(|_|Error::UnexpectedError)?;
 
                 // Check for member addition reference
-                if members.len() != 0 {
+                if !members.is_empty() {
                         // Update the Key Mangement
                         let mut keys = vec![applicant];
 
@@ -978,6 +1049,8 @@ mod ordum {
 
                                 let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                 
+                                // update all team account keys
+                                self.all_applicant_teams.push((team_applicant_data.clone().name,wallet_data.key_pointer));
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -991,6 +1064,8 @@ mod ordum {
                             }else{
                                 let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                                 
+                                // update all team account keys
+                                self.all_applicant_teams.push((team_applicant_data.clone().name,wallet_data.key_pointer));
 
                                 // Register Keys
                                 self.manage_keys.push(wallet_data.clone());
@@ -1014,9 +1089,11 @@ mod ordum {
 
                         let _applicant_val_bytes = self.team_applicant_profile.insert(wallet_data.key_pointer,&team_applicant_data);
                        
+                        // update all team account keys
+                        self.all_applicant_teams.push((team_applicant_data.clone().name,wallet_data.key_pointer));
 
                         // Register Keys
-                        self.manage_keys.push(wallet_data.clone());
+                        self.manage_keys.push(wallet_data);
                         // Emits an event
                         Self::env().emit_event(TeamApplicantCreated{
                             name:team_applicant_data.clone().name,
@@ -1345,6 +1422,7 @@ mod ordum {
         }
     
 
+        
         #[ink(message, selector = 0xC0DE0013)]
         fn fetch_milestone(&self,project_id:u8,mile_no:Option<u8>) -> MilestoneResult<FetchedMilestone>{
 
@@ -1515,7 +1593,7 @@ mod ordum {
 
                 // Store in the storage
                 let passcode = hash.to_vec();
-                self.db_auth.insert(caller.clone(),&passcode);
+                self.db_auth.insert(caller,&passcode);
                 
                 // Emit Event
                 Self::env().emit_event(
@@ -1533,7 +1611,7 @@ mod ordum {
                 // Get the Vector bit 
                 // Hex encode
                 let caller = Self::env().caller();
-                let passcode_value = self.db_auth.get(&caller).ok_or(Error::NotAuthorized)?;
+                let passcode_value = self.db_auth.get(caller).ok_or(Error::NotAuthorized)?;
 
                 let passcode = passcode_value.encode_hex::<String>();
 
