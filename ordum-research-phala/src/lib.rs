@@ -359,6 +359,7 @@ pub struct FetchedMilestone{
 
 
 
+
 #[derive(Encode,Clone,Default, Decode,Debug)]
 #[cfg_attr(feature = "std", derive(StorageLayout,scale_info::TypeInfo))]
 pub struct InnerProject {
@@ -628,10 +629,10 @@ pub trait OffchainDbAuth {
     fn get_random(&self) -> CreateResult<Vec<u8>>;
 
     #[ink(message, selector= 0xC0DE0017)]
-    fn set_passcode(&mut self,rand:Vec<u8>) -> CreateResult<()>;
+    fn set_passcode(&mut self,rand:Vec<u8>,name:String) -> CreateResult<()>;
 
     #[ink(message, selector= 0xC0DE0018)]
-    fn get_passcode(&self) -> CreateResult<String>;
+    fn get_passcode(&self) -> CreateResult<(String,String)>;
 
 }
 
@@ -670,7 +671,7 @@ mod ordum {
 
         manage_keys: Vec<KeyManagement>,
         proposal: Mapping<AccountId,Vec<Project>>,
-        db_auth: Mapping<AccountId,Vec<u8>>
+        db_auth: Mapping<AccountId,(String,Vec<u8>)>
         // Mapping issuer_id to a mapping of  application number to application profile
         // As this will enable specifi grant issuer to have dedicated list of queue application
         // and also teams to have numerous application per one issuer
@@ -1582,7 +1583,7 @@ mod ordum {
             }
         
             #[ink(message, selector= 0xC0DE0017)]
-            fn set_passcode(&mut self,rand:Vec<u8>) -> CreateResult<()>{
+            fn set_passcode(&mut self,rand:Vec<u8>,name: String) -> CreateResult<()>{
                 let caller = Self::env().caller();
                 // Hash caller + rand
                 let mut preimage = caller.encode().to_vec();
@@ -1593,7 +1594,7 @@ mod ordum {
 
                 // Store in the storage
                 let passcode = hash.to_vec();
-                self.db_auth.insert(caller,&passcode);
+                self.db_auth.insert(caller,&(name,passcode));
                 
                 // Emit Event
                 Self::env().emit_event(
@@ -1607,15 +1608,15 @@ mod ordum {
 
         
             #[ink(message, selector= 0xC0DE0018)]
-            fn get_passcode(&self) -> CreateResult<String>{
+            fn get_passcode(&self) -> CreateResult<(String,String)>{
                 // Get the Vector bit 
                 // Hex encode
                 let caller = Self::env().caller();
-                let passcode_value = self.db_auth.get(caller).ok_or(Error::NotAuthorized)?;
+                let value = self.db_auth.get(caller).ok_or(Error::NotAuthorized)?;
 
-                let passcode = passcode_value.encode_hex::<String>();
+                let passcode = value.1.encode_hex::<String>();
 
-                Ok(passcode)
+                Ok((value.0,passcode))
             }
     }
 
