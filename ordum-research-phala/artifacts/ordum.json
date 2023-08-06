@@ -1,6 +1,6 @@
 {
   "source": {
-    "hash": "0xc5ea4e207c6c0ba64fcad4df6442af913646d0fe47eee4989ee5dbf6d9c01c11",
+    "hash": "0x96cc866af910332434c4ab91cbc6aaa0bbee1fa06bb3f40a9515c3ada75e8aaa",
     "language": "ink! 4.2.1",
     "compiler": "rustc 1.69.0",
     "build_info": {
@@ -443,7 +443,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "create_individual_profile",
+        "label": "CreateProfile::create_individual_profile",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -505,7 +505,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "update_individual_profile",
+        "label": "CreateProfile::update_individual_profile",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -594,7 +594,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "create_applicant_profile",
+        "label": "CreateProfile::create_applicant_profile",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -629,7 +629,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "update_keys",
+        "label": "CreateProfile::update_keys",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -682,7 +682,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "add_proposal",
+        "label": "Proposer::add_proposal",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -708,7 +708,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "fetch_proposal",
+        "label": "Proposer::fetch_proposal",
         "mutates": false,
         "payable": false,
         "returnType": {
@@ -752,7 +752,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "add_milestone",
+        "label": "MilestoneTracker::add_milestone",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -805,7 +805,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "edit_milestone",
+        "label": "MilestoneTracker::edit_milestone",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -858,7 +858,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "pivote_milestone",
+        "label": "MilestoneTracker::pivote_milestone",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -893,7 +893,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "fetch_milestone",
+        "label": "MilestoneTracker::fetch_milestone",
         "mutates": false,
         "payable": false,
         "returnType": {
@@ -909,7 +909,7 @@
         "args": [],
         "default": false,
         "docs": [],
-        "label": "get_random",
+        "label": "OffchainDbAuth::get_random",
         "mutates": false,
         "payable": false,
         "returnType": {
@@ -944,7 +944,7 @@
         ],
         "default": false,
         "docs": [],
-        "label": "set_passcode",
+        "label": "OffchainDbAuth::set_passcode",
         "mutates": true,
         "payable": false,
         "returnType": {
@@ -960,7 +960,7 @@
         "args": [],
         "default": false,
         "docs": [],
-        "label": "get_passcode",
+        "label": "OffchainDbAuth::get_passcode",
         "mutates": false,
         "payable": false,
         "returnType": {

@@ -1585,6 +1585,11 @@ mod ordum {
             #[ink(message, selector= 0xC0DE0017)]
             fn set_passcode(&mut self,rand:Vec<u8>,name: String) -> CreateResult<()>{
                 let caller = Self::env().caller();
+
+                // check if the accountis already there
+                if self.db_auth.contains(caller){
+                    Err(Error::AccountExists)?
+                }
                 // Hash caller + rand
                 let mut preimage = caller.encode().to_vec();
                 preimage.append(&mut rand.encode().to_vec());
