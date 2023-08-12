@@ -99,6 +99,8 @@ pub enum Error {
     // Grant Application errors
     /// Any system related error
     UnexpectedError,
+    SecretKeyNotAuthorized,
+    SecretKeyAccountDontExists
 }
 
 /// Error types for Milestone Tracking
@@ -617,7 +619,10 @@ pub trait Proposer {
 
     #[ink(message, selector = 0xC0DE0015)]
     fn fetch_proposal(&self,proposal_id:u8) -> MilestoneResult<Project>;
-    
+
+
+    #[ink(message, selector = 0xC0DE0019)]
+    fn fetch_latest_proposal_id(&self) -> MilestoneResult<u8>;
 }
 
 
@@ -1277,6 +1282,39 @@ mod ordum {
                 
             }
         }
+
+
+        #[ink(message, selector = 0xC0DE0019)]
+        fn fetch_latest_proposal_id(&self) -> MilestoneResult<u8>{
+            let caller = Self::env().caller();
+            // Check if there is proposal in the registered user Id
+            if let Some(wallet) = self.manage_keys.iter().find(|&key|{
+                key.allowed_keys.contains(&caller)
+            }){
+                // Check for Team
+                let project = self.proposal.get(wallet.key_pointer).ok_or(MilestoneError::ProjectNotFound)?;
+                
+                if let Some(last_project) = project.last(){
+                    let last_project_id = last_project.id;
+                    Ok(last_project_id)
+                }else{
+
+                    Ok(0)
+                } 
+
+            }else{
+                // Check for individual
+                let project = self.proposal.get(caller).ok_or(MilestoneError::ProjectNotFound)?;
+                if let Some(last_project) = project.last(){
+                    let last_project_id = last_project.id;
+                    Ok(last_project_id)
+                }else{
+
+                    Ok(0)
+                } 
+            }
+        }
+
     }
 
 
@@ -1588,7 +1626,7 @@ mod ordum {
 
                 // check if the accountis already there
                 if self.db_auth.contains(caller){
-                    Err(Error::AccountExists)?
+                    Err(Error::SecretKeyAccountDontExists)?
                 }
                 // Hash caller + rand
                 let mut preimage = caller.encode().to_vec();
@@ -1617,7 +1655,7 @@ mod ordum {
                 // Get the Vector bit 
                 // Hex encode
                 let caller = Self::env().caller();
-                let value = self.db_auth.get(caller).ok_or(Error::NotAuthorized)?;
+                let value = self.db_auth.get(caller).ok_or(Error::SecretKeyNotAuthorized)?;
 
                 let passcode = value.1.encode_hex::<String>();
 

@@ -1,6 +1,6 @@
 {
   "source": {
-    "hash": "0x96cc866af910332434c4ab91cbc6aaa0bbee1fa06bb3f40a9515c3ada75e8aaa",
+    "hash": "0xfabcd76c354f6b2b96da15fb8d3a837f9f311b88086697e915af89fd385812a2",
     "language": "ink! 4.2.1",
     "compiler": "rustc 1.69.0",
     "build_info": {
@@ -50,7 +50,7 @@
         "displayName": [
           "Balance"
         ],
-        "type": 73
+        "type": 75
       },
       "blockNumber": {
         "displayName": [
@@ -62,13 +62,13 @@
         "displayName": [
           "ChainExtension"
         ],
-        "type": 75
+        "type": 77
       },
       "hash": {
         "displayName": [
           "Hash"
         ],
-        "type": 74
+        "type": 76
       },
       "maxEventTopics": 4,
       "timestamp": {
@@ -721,6 +721,22 @@
         "selector": "0xc0de0015"
       },
       {
+        "args": [],
+        "default": false,
+        "docs": [],
+        "label": "Proposer::fetch_latest_proposal_id",
+        "mutates": false,
+        "payable": false,
+        "returnType": {
+          "displayName": [
+            "ink",
+            "MessageResult"
+          ],
+          "type": 61
+        },
+        "selector": "0xc0de0019"
+      },
+      {
         "args": [
           {
             "label": "project_id",
@@ -887,7 +903,7 @@
               "displayName": [
                 "Option"
               ],
-              "type": 61
+              "type": 63
             }
           }
         ],
@@ -901,7 +917,7 @@
             "ink",
             "MessageResult"
           ],
-          "type": 62
+          "type": 64
         },
         "selector": "0xc0de0013"
       },
@@ -917,7 +933,7 @@
             "ink",
             "MessageResult"
           ],
-          "type": 68
+          "type": 70
         },
         "selector": "0xc0de0016"
       },
@@ -968,7 +984,7 @@
             "ink",
             "MessageResult"
           ],
-          "type": 70
+          "type": 72
         },
         "selector": "0xc0de0018"
       }
@@ -2231,6 +2247,14 @@
               {
                 "index": 6,
                 "name": "UnexpectedError"
+              },
+              {
+                "index": 7,
+                "name": "SecretKeyNotAuthorized"
+              },
+              {
+                "index": 8,
+                "name": "SecretKeyAccountDontExists"
               }
             ]
           }
@@ -2950,6 +2974,90 @@
           "variant": {
             "variants": [
               {
+                "fields": [
+                  {
+                    "type": 62
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 37
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 62
+          },
+          {
+            "name": "E",
+            "type": 37
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 62,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 3
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 58
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 3
+          },
+          {
+            "name": "E",
+            "type": 58
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 63,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
                 "index": 0,
                 "name": "None"
               },
@@ -2977,7 +3085,7 @@
       }
     },
     {
-      "id": 62,
+      "id": 64,
       "type": {
         "def": {
           "variant": {
@@ -2985,7 +3093,7 @@
               {
                 "fields": [
                   {
-                    "type": 63
+                    "type": 65
                   }
                 ],
                 "index": 0,
@@ -3006,7 +3114,7 @@
         "params": [
           {
             "name": "T",
-            "type": 63
+            "type": 65
           },
           {
             "name": "E",
@@ -3019,7 +3127,7 @@
       }
     },
     {
-      "id": 63,
+      "id": 65,
       "type": {
         "def": {
           "variant": {
@@ -3027,7 +3135,7 @@
               {
                 "fields": [
                   {
-                    "type": 64
+                    "type": 66
                   }
                 ],
                 "index": 0,
@@ -3048,7 +3156,7 @@
         "params": [
           {
             "name": "T",
-            "type": 64
+            "type": 66
           },
           {
             "name": "E",
@@ -3061,7 +3169,7 @@
       }
     },
     {
-      "id": 64,
+      "id": 66,
       "type": {
         "def": {
           "composite": {
@@ -3073,22 +3181,22 @@
               },
               {
                 "name": "edited_per_mile",
-                "type": 65,
+                "type": 67,
                 "typeName": "Option<Vec<EditedMile>>"
               },
               {
                 "name": "all_edits",
-                "type": 66,
+                "type": 68,
                 "typeName": "Option<Vec<(u8, Vec<EditedMile>)>>"
               },
               {
                 "name": "main",
-                "type": 67,
+                "type": 69,
                 "typeName": "Option<Vec<AddMilestone>>"
               },
               {
                 "name": "pivoted",
-                "type": 67,
+                "type": 69,
                 "typeName": "Option<Vec<AddMilestone>>"
               }
             ]
@@ -3101,7 +3209,7 @@
       }
     },
     {
-      "id": 65,
+      "id": 67,
       "type": {
         "def": {
           "variant": {
@@ -3134,7 +3242,7 @@
       }
     },
     {
-      "id": 66,
+      "id": 68,
       "type": {
         "def": {
           "variant": {
@@ -3167,7 +3275,7 @@
       }
     },
     {
-      "id": 67,
+      "id": 69,
       "type": {
         "def": {
           "variant": {
@@ -3196,90 +3304,6 @@
         ],
         "path": [
           "Option"
-        ]
-      }
-    },
-    {
-      "id": 68,
-      "type": {
-        "def": {
-          "variant": {
-            "variants": [
-              {
-                "fields": [
-                  {
-                    "type": 69
-                  }
-                ],
-                "index": 0,
-                "name": "Ok"
-              },
-              {
-                "fields": [
-                  {
-                    "type": 37
-                  }
-                ],
-                "index": 1,
-                "name": "Err"
-              }
-            ]
-          }
-        },
-        "params": [
-          {
-            "name": "T",
-            "type": 69
-          },
-          {
-            "name": "E",
-            "type": 37
-          }
-        ],
-        "path": [
-          "Result"
-        ]
-      }
-    },
-    {
-      "id": 69,
-      "type": {
-        "def": {
-          "variant": {
-            "variants": [
-              {
-                "fields": [
-                  {
-                    "type": 34
-                  }
-                ],
-                "index": 0,
-                "name": "Ok"
-              },
-              {
-                "fields": [
-                  {
-                    "type": 42
-                  }
-                ],
-                "index": 1,
-                "name": "Err"
-              }
-            ]
-          }
-        },
-        "params": [
-          {
-            "name": "T",
-            "type": 34
-          },
-          {
-            "name": "E",
-            "type": 42
-          }
-        ],
-        "path": [
-          "Result"
         ]
       }
     },
@@ -3334,7 +3358,7 @@
               {
                 "fields": [
                   {
-                    "type": 72
+                    "type": 34
                   }
                 ],
                 "index": 0,
@@ -3355,7 +3379,7 @@
         "params": [
           {
             "name": "T",
-            "type": 72
+            "type": 34
           },
           {
             "name": "E",
@@ -3371,6 +3395,90 @@
       "id": 72,
       "type": {
         "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 73
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 37
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 73
+          },
+          {
+            "name": "E",
+            "type": 37
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 73,
+      "type": {
+        "def": {
+          "variant": {
+            "variants": [
+              {
+                "fields": [
+                  {
+                    "type": 74
+                  }
+                ],
+                "index": 0,
+                "name": "Ok"
+              },
+              {
+                "fields": [
+                  {
+                    "type": 42
+                  }
+                ],
+                "index": 1,
+                "name": "Err"
+              }
+            ]
+          }
+        },
+        "params": [
+          {
+            "name": "T",
+            "type": 74
+          },
+          {
+            "name": "E",
+            "type": 42
+          }
+        ],
+        "path": [
+          "Result"
+        ]
+      }
+    },
+    {
+      "id": 74,
+      "type": {
+        "def": {
           "tuple": [
             0,
             0
@@ -3379,7 +3487,7 @@
       }
     },
     {
-      "id": 73,
+      "id": 75,
       "type": {
         "def": {
           "primitive": "u128"
@@ -3387,7 +3495,7 @@
       }
     },
     {
-      "id": 74,
+      "id": 76,
       "type": {
         "def": {
           "composite": {
@@ -3407,7 +3515,7 @@
       }
     },
     {
-      "id": 75,
+      "id": 77,
       "type": {
         "def": {
           "variant": {}
