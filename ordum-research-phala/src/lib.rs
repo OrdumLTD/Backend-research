@@ -1663,4 +1663,79 @@ mod ordum {
             }
     }
 
+    //  ---------------------------------------- E2E TESTING -------------------------------------------------- //
+
+    #[cfg(all(test, feature = "e2e-tests"))]
+    mod e2e_tests {
+        use super::*;
+        use ink_e2e::build_message;
+
+
+        // ------------------------ Profile creation and management ----------------------//
+
+        #[ink_e2e::test]
+        async fn team_creation_works(mut client: ink_e2e::Client<C, E>) -> CreateResult<()> {
+          
+
+            Ok(())
+        }
+
+        #[ink_e2e::test]
+        async fn team_members_updates_works(mut client: ink_e2e::Client<C, E>) -> CreateResult<()> {
+          
+
+            Ok(())
+        }
+
+        #[ink_e2e::test]
+        async fn individual_creation_works(mut client: ink_e2e::Client<C, E>) -> CreateResult<()> {
+          
+
+            Ok(())
+        }
+
+        #[ink_e2e::test]
+        async fn team_n_individual_linking_works(mut client: ink_e2e::Client<C, E>) -> CreateResult<()> {
+          
+
+            Ok(())
+        }
+
+        // ------------------ Creation of profiles and managing done -------------------------------//
+
+        // ------------------- Proposals and Milestones management ---------------------------------//
+
+        #[ink_e2e::test]
+        async fn add_proposal_works(mut client: ink_e2e::Client<C, E>) -> MilestoneResult<()> {
+          
+
+            Ok(())
+        }
+
+        #[ink_e2e::test]
+        async fn add_milestones_works(mut client: ink_e2e::Client<C, E>) -> MilestoneResult<()> {
+          
+
+            Ok(())
+        }
+
+        #[ink_e2e::test]
+        async fn edit_milestones_works(mut client: ink_e2e::Client<C, E>) -> MilestoneResult<()> {
+          
+
+            Ok(())
+        }
+
+        #[ink_e2e::test]
+        async fn add_milestones_n_edits_works(mut client: ink_e2e::Client<C, E>) -> MilestoneResult<()> {
+          
+
+            Ok(())
+        }
+
+
+
+
+    }
+
 }
